@@ -8,12 +8,15 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 import json
+import logging
 
 from app.core.database import get_db, User, ExamSession, SecurityAlert, Exam
 from app.core.security import get_current_user
 from app.ai.face_recognition import FaceRecognitionEngine
+from app.api.v1.websocket import send_alert_to_connections
 from app.models.surveillance import (
     FaceVerificationRequest,
     FaceVerificationResponse,
@@ -22,9 +25,35 @@ from app.models.surveillance import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Initialisation du moteur de reconnaissance faciale
 face_engine = FaceRecognitionEngine()
+
+async def create_and_send_alert(
+    db: Session,
+    session_id: int,
+    alert_type: str,
+    severity: str,
+    description: str
+):
+    """
+    Crée une alerte et l'envoie via WebSocket
+    """
+    alert = SecurityAlert(
+        session_id=session_id,
+        alert_type=alert_type,
+        severity=severity,
+        description=description
+    )
+    db.add(alert)
+    db.commit()
+    db.refresh(alert)
+    
+    # Envoyer via WebSocket
+    await send_alert_to_connections(alert, db)
+    
+    return alert
 
 @router.get("/dashboard/stats")
 async def get_dashboard_stats(
@@ -141,6 +170,11 @@ async def verify_identity(
             )
             db.add(alert)
             db.commit()
+            db.refresh(alert)
+            
+            # Envoyer l'alerte via WebSocket
+            from app.api.v1.websocket import send_alert_to_connections
+            await send_alert_to_connections(alert, db)
         
         return FaceVerificationResponse(
             verified=verification_result['verified'],
@@ -383,6 +417,89 @@ async def get_session_alerts(
         }
         for alert in alerts
     ]
+
+@router.post("/analyze")
+async def analyze_surveillance_data_with_alerts(
+    session_id: int,
+    video_frame: Optional[str] = None,
+    audio_chunk: Optional[str] = None,
+    timestamp: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Analyse les données de surveillance et crée des alertes automatiquement
+    """
+    try:
+        # Vérifier que la session existe
+        session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session non trouvée")
+        
+        alerts_created = []
+        
+        # Analyser la vidéo si disponible
+        if video_frame:
+            try:
+                # Décodage de l'image
+                image_data_clean = video_frame.split(',')[1] if ',' in video_frame else video_frame
+                image_bytes = base64.b64decode(image_data_clean)
+                image_np = np.frombuffer(image_bytes, np.uint8)
+                image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
+                
+                # Analyse du visage
+                face_result = face_engine.analyze_face_behavior(image)
+                
+                # Créer des alertes si nécessaire
+                if face_result.get('face_not_detected'):
+                    alert = await create_and_send_alert(
+                        db, session_id, 'face_not_detected', 'medium',
+                        'Visage non détecté - l\'étudiant pourrait ne pas être présent'
+                    )
+                    alerts_created.append(alert.id)
+                
+                if face_result.get('multiple_faces'):
+                    alert = await create_and_send_alert(
+                        db, session_id, 'multiple_faces', 'high',
+                        'Plusieurs visages détectés - personne non autorisée possible'
+                    )
+                    alerts_created.append(alert.id)
+                
+                if face_result.get('gaze_not_on_screen'):
+                    alert = await create_and_send_alert(
+                        db, session_id, 'gaze_detection', 'medium',
+                        'Le regard n\'est pas dirigé vers l\'écran'
+                    )
+                    alerts_created.append(alert.id)
+                
+            except Exception as e:
+                logger.error(f"Erreur lors de l'analyse vidéo: {e}")
+        
+        # Analyser l'audio si disponible
+        if audio_chunk:
+            try:
+                # Ici, on pourrait analyser l'audio et créer des alertes
+                # Pour l'instant, c'est une simulation
+                import random
+                if random.random() < 0.1:  # 10% de chance de sons suspects
+                    alert = await create_and_send_alert(
+                        db, session_id, 'suspicious_audio', 'medium',
+                        'Sons suspects détectés dans l\'environnement'
+                    )
+                    alerts_created.append(alert.id)
+            except Exception as e:
+                logger.error(f"Erreur lors de l'analyse audio: {e}")
+        
+        return {
+            "session_id": session_id,
+            "alerts_created": len(alerts_created),
+            "alert_ids": alerts_created,
+            "timestamp": timestamp or datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Erreur lors de l'analyse de surveillance: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'analyse: {str(e)}")
 
 @router.post("/analyze-face")
 async def analyze_face_behavior(

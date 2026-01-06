@@ -3,7 +3,7 @@ ProctoFlex AI - Backend API
 Serveur FastAPI pour la surveillance d'examens en ligne
 """
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from contextlib import asynccontextmanager
@@ -13,6 +13,7 @@ from typing import List
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.api.v1.api import api_router
+from app.api.v1.websocket import websocket_endpoint
 from app.core.security import get_current_user
 
 # Création des tables au démarrage
@@ -43,6 +44,11 @@ app.add_middleware(
 
 # Inclusion des routes API
 app.include_router(api_router, prefix="/api/v1")
+
+# Endpoint WebSocket pour les alertes en temps réel
+@app.websocket("/ws")
+async def websocket_route(websocket: WebSocket):
+    await websocket_endpoint(websocket)
 
 # Route de santé
 @app.get("/health")

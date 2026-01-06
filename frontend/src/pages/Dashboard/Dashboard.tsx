@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import CreateExamModal from '../../components/Exams/CreateExamModal';
+import AlertsPanel from '../../components/Alerts/AlertsPanel';
 import { apiService } from '@/services/api';
 import { API_ENDPOINTS } from '@/config/api';
 
@@ -325,42 +326,8 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
-              <h2 className="text-sm font-semibold text-slate-900">Alertes récentes</h2>
-              <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                IA & règles métier
-              </span>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {recentAlerts.length === 0 ? (
-                <div className="px-5 py-8 text-center text-sm text-slate-500">
-                  Aucune alerte récente
-                </div>
-              ) : (
-                recentAlerts.map((alert) => (
-                <div key={alert.id} className="px-5 py-3 text-sm">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="font-medium text-slate-900">{alert.type}</p>
-                      <p className="mt-0.5 text-xs text-slate-600">
-                        {alert.student} · {alert.exam}
-                      </p>
-                    </div>
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${getSeverityClass(alert.severity)}`}>
-                      {alert.severity === 'high'
-                        ? 'Critique'
-                        : alert.severity === 'medium'
-                          ? 'Moyenne'
-                          : 'Faible'}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">{alert.time}</p>
-                </div>
-                ))
-              )}
-            </div>
-          </div>
+          {/* Panneau d'alertes en temps réel */}
+          <AlertsPanel limit={10} />
 
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-5 py-4 text-xs text-slate-600">
             Astuce: configurez vos examens dans l&apos;onglet &laquo; Examens &raquo; puis lancez

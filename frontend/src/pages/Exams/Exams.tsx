@@ -1,41 +1,95 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Eye } from 'lucide-react';
 import CreateExamModal from '../../components/Exams/CreateExamModal';
+import { apiService } from '../../services/api';
+import { API_ENDPOINTS } from '../../config/api';
+
+interface Exam {
+  id: number;
+  title: string;
+  description: string | null;
+  duration_minutes: number;
+  start_time: string;
+  end_time: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface ExamDisplay {
+  id: number;
+  title: string;
+  description: string;
+  duration: number;
+  status: string;
+  students: number;
+  startDate: string;
+  endDate: string;
+}
 
 const Exams: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const exams = [
-    {
-      id: 1,
-      title: 'Programmation Java',
-      description: 'Examen pratique de programmation orientée objet',
-      duration: 120,
-      status: 'active',
-      students: 45,
-      startDate: '2024-01-15',
-      endDate: '2024-01-15',
-    },
-    {
-      id: 2,
-      title: 'Mathématiques Avancées',
-      description: 'Examen théorique de mathématiques',
-      duration: 90,
-      status: 'scheduled',
-      students: 32,
-      startDate: '2024-01-20',
-      endDate: '2024-01-20',
-    },
-    {
-      id: 3,
-      title: 'Base de Données',
-      description: 'Examen pratique SQL et modélisation',
-      duration: 150,
-      status: 'draft',
-      students: 28,
-      startDate: '2024-01-25',
-      endDate: '2024-01-25',
-    },
-  ];
+  const [exams, setExams] = useState<ExamDisplay[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadExams = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await apiService.get<Exam[]>(API_ENDPOINTS.EXAMS.LIST);
+      
+      if (response.error) {
+        setError(response.error);
+        return;
+      }
+
+      if (response.data) {
+        // Mapper les données de l'API vers le format d'affichage
+        const mappedExams: ExamDisplay[] = response.data.map((exam) => {
+          // Déterminer le statut basé sur is_active et les dates
+          let status = 'draft';
+          if (exam.is_active) {
+            const now = new Date();
+            const startTime = new Date(exam.start_time);
+            const endTime = new Date(exam.end_time);
+            
+            if (now >= startTime && now <= endTime) {
+              status = 'active';
+            } else if (now < startTime) {
+              status = 'scheduled';
+            } else {
+              status = 'active'; // On garde active même si c'est passé
+            }
+          }
+
+          // Formater les dates pour l'affichage
+          const startDate = new Date(exam.start_time).toLocaleDateString('fr-FR');
+          const endDate = new Date(exam.end_time).toLocaleDateString('fr-FR');
+
+          return {
+            id: exam.id,
+            title: exam.title,
+            description: exam.description || '',
+            duration: exam.duration_minutes,
+            status,
+            students: 0, // TODO: Récupérer le nombre d'étudiants assignés
+            startDate,
+            endDate,
+          };
+        });
+
+        setExams(mappedExams);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur lors du chargement des examens');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadExams();
+  }, []);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -80,36 +134,52 @@ const Exams: React.FC = () => {
         </button>
       </div>
 
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
+          {error}
+        </div>
+      )}
+
       {/* Exams Table */}
       <div className="bg-white shadow rounded-lg">
         <div className="px-4 py-5 sm:p-6">
-          <div className="overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Examen
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Durée
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Étudiants
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Statut
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {exams.map((exam) => (
-                  <tr key={exam.id} className="hover:bg-gray-50">
+          {isLoading ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Chargement des examens...</p>
+            </div>
+          ) : exams.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Aucun examen trouvé. Créez votre premier examen !</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Examen
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Durée
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Étudiants
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Statut
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {exams.map((exam) => (
+                    <tr key={exam.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
@@ -152,10 +222,11 @@ const Exams: React.FC = () => {
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
@@ -165,7 +236,7 @@ const Exams: React.FC = () => {
         onClose={() => setIsCreateModalOpen(false)}
         onSuccess={() => {
           // Rafraîchir la liste des examens
-          window.location.reload();
+          loadExams();
         }}
       />
     </div>

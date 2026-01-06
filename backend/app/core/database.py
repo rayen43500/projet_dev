@@ -2,7 +2,7 @@
 Configuration de la base de données ProctoFlex AI
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Table
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql import func
@@ -15,6 +15,14 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Base pour les modèles
 Base = declarative_base()
+
+# Table de relation many-to-many pour Exam-Student
+exam_students = Table(
+    'exam_students',
+    Base.metadata,
+    Column('exam_id', Integer, ForeignKey('exams.id'), primary_key=True),
+    Column('student_id', Integer, ForeignKey('users.id'), primary_key=True)
+)
 
 # Modèles de base de données
 class User(Base):
@@ -34,6 +42,7 @@ class User(Base):
     # Relations
     exams_as_student = relationship("Exam", foreign_keys="Exam.student_id", back_populates="student")
     exams_as_instructor = relationship("Exam", foreign_keys="Exam.instructor_id", back_populates="instructor")
+    assigned_exams = relationship("Exam", secondary=exam_students, back_populates="assigned_students")
     sessions = relationship("ExamSession", back_populates="student")
 
 class Exam(Base):
@@ -56,6 +65,7 @@ class Exam(Base):
     # Relations
     student = relationship("User", foreign_keys=[student_id], back_populates="exams_as_student")
     instructor = relationship("User", foreign_keys=[instructor_id], back_populates="exams_as_instructor")
+    assigned_students = relationship("User", secondary=exam_students, back_populates="assigned_exams")
     sessions = relationship("ExamSession", back_populates="exam")
 
 class ExamSession(Base):

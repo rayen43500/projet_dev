@@ -5,6 +5,7 @@
 // URL de base de l'API - utilise les variables d'environnement ou la valeur par défaut
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+export const WS_ENDPOINT = '/ws';
 
 // Endpoints de l'API
 export const API_ENDPOINTS = {
@@ -18,6 +19,7 @@ export const API_ENDPOINTS = {
   // Utilisateurs
   USERS: {
     LIST: '/api/v1/users',
+    STUDENTS: '/api/v1/users/students',
     GET: (id: number) => `/api/v1/users/${id}`,
     CREATE: '/api/v1/users',
     UPDATE: (id: number) => `/api/v1/users/${id}`,
@@ -30,6 +32,9 @@ export const API_ENDPOINTS = {
     CREATE: '/api/v1/exams',
     UPDATE: (id: number) => `/api/v1/exams/${id}`,
     DELETE: (id: number) => `/api/v1/exams/${id}`,
+    ASSIGN_STUDENTS: (id: number) => `/api/v1/exams/${id}/assign-students`,
+    GET_STUDENTS: (id: number) => `/api/v1/exams/${id}/students`,
+    REMOVE_STUDENT: (examId: number, studentId: number) => `/api/v1/exams/${examId}/students/${studentId}`,
   },
   // Sessions
   SESSIONS: {
