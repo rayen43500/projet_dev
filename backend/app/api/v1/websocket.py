@@ -5,6 +5,7 @@ WebSocket endpoints pour les alertes en temps réel
 from fastapi import WebSocket, WebSocketDisconnect
 from typing import Dict, Set
 import logging
+from sqlalchemy.orm import Session
 
 from app.core.database import SecurityAlert, ExamSession
 from app.core.security import verify_token
@@ -153,11 +154,18 @@ async def get_user_from_websocket(websocket: WebSocket, token: str = None):
     
     try:
         payload = verify_token(token)
-        user_id = payload.get("sub")
+        if payload is None:
+            await websocket.close(code=4003, reason="Token invalide")
+            return None
+        
+        username = payload.get("sub")
+        if username is None:
+            await websocket.close(code=4003, reason="Token invalide")
+            return None
         
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.id == user_id).first()
+            user = db.query(User).filter(User.username == username).first()
             return user
         finally:
             db.close()

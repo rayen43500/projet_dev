@@ -15,6 +15,57 @@ from datetime import timezone
 
 router = APIRouter()
 
+# IMPORTANT: L'ordre des routes est crucial !
+# Les routes spécifiques (/students) doivent être AVANT les routes avec paramètres (/{user_id})
+
+@router.get("/students", response_model=List[UserModel])
+async def get_students(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Récupère la liste des étudiants
+    Accessible aux admins et instructors
+    """
+    if current_user.role not in ["admin", "instructor"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès non autorisé. Seuls les admins et instructeurs peuvent accéder à cette ressource."
+        )
+    
+    # Récupérer tous les utilisateurs pour débogage
+    all_users = db.query(User).all()
+    
+    # Log pour débogage
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Afficher tous les rôles trouvés
+    roles_found = set([user.role for user in all_users])
+    logger.info(f"Rôles trouvés dans la base: {roles_found}")
+    logger.info(f"Utilisateur connecté: {current_user.username}, Rôle: {current_user.role}")
+    
+    # Filtrer les étudiants (insensible à la casse et avec différentes variantes)
+    from sqlalchemy import func, or_
+    students = db.query(User).filter(
+        or_(
+            func.lower(User.role) == "student",
+            func.lower(User.role) == "étudiant",
+            User.role == "student",
+            User.role == "Étudiant",
+            User.role == "STUDENT"
+        ),
+        User.is_active == True
+    ).offset(skip).limit(limit).all()
+    
+    logger.info(f"Nombre d'étudiants trouvés: {len(students)}")
+    if students:
+        logger.info(f"Étudiants: {[s.username for s in students]}")
+    
+    return students
+
 @router.get("", response_model=List[UserModel])
 async def get_users(
     skip: int = 0,
@@ -35,26 +86,6 @@ async def get_users(
     
     users = db.query(User).offset(skip).limit(limit).all()
     return users
-
-@router.get("/students", response_model=List[UserModel])
-async def get_students(
-    skip: int = 0,
-    limit: int = 100,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Récupère la liste des étudiants
-    Accessible aux admins et instructors
-    """
-    if current_user.role not in ["admin", "instructor"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Accès non autorisé"
-        )
-    
-    students = db.query(User).filter(User.role == "student").offset(skip).limit(limit).all()
-    return students
 
 @router.get("/{user_id}", response_model=UserModel)
 async def get_user(

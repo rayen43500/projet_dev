@@ -116,8 +116,51 @@ async def get_exams(
 ):
     """
     Récupère la liste des examens
+    Pour les étudiants, retourne uniquement leurs examens assignés
+    Pour les admins/instructeurs, retourne tous les examens
     """
-    exams = db.query(Exam).offset(skip).limit(limit).all()
+    if current_user.role == "student":
+        # Pour les étudiants, retourner uniquement les examens assignés
+        exams = db.query(Exam).join(Exam.assigned_students).filter(
+            User.id == current_user.id
+        ).offset(skip).limit(limit).all()
+    else:
+        # Pour les admins/instructeurs, retourner tous les examens
+        exams = db.query(Exam).offset(skip).limit(limit).all()
+    
+    return exams
+
+@router.get("/student/{student_id}", response_model=List[ExamResponse])
+async def get_student_exams(
+    student_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Récupère les examens assignés à un étudiant spécifique
+    Un étudiant peut voir uniquement ses propres examens
+    Les admins/instructeurs peuvent voir les examens de n'importe quel étudiant
+    """
+    # Vérifier les permissions
+    if current_user.role == "student" and current_user.id != student_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous ne pouvez voir que vos propres examens"
+        )
+    
+    # Récupérer les examens assignés à cet étudiant
+    student = db.query(User).filter(User.id == student_id).first()
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Étudiant non trouvé"
+        )
+    
+    # Récupérer les examens via la relation many-to-many
+    exams = db.query(Exam).join(Exam.assigned_students).filter(
+        User.id == student_id
+    ).all()
+    
     return exams
 
 @router.get("/{exam_id}", response_model=ExamResponse)

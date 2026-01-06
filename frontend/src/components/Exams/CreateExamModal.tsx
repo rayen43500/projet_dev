@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, FileText, Users, Search } from 'lucide-react';
+import { X, Users, Search } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { API_ENDPOINTS } from '../../config/api';
 
@@ -41,13 +41,40 @@ const CreateExamModal: React.FC<CreateExamModalProps> = ({ isOpen, onClose, onSu
 
   const loadStudents = async () => {
     setLoadingStudents(true);
+    setError(''); // Réinitialiser l'erreur
     try {
+      console.log('Chargement des étudiants depuis:', API_ENDPOINTS.USERS.STUDENTS);
       const response = await apiService.get<Student[]>(API_ENDPOINTS.USERS.STUDENTS);
+      
+      console.log('Réponse API étudiants:', response);
+      
+      if (response.error) {
+        console.error('Erreur API:', response.error, 'Status:', response.status);
+        if (response.status === 401) {
+          setError('Votre session a expiré. Veuillez vous reconnecter.');
+        } else if (response.status === 403) {
+          setError('Vous n\'avez pas les permissions nécessaires pour voir les étudiants. (403 Forbidden)');
+        } else {
+          setError(`Erreur lors du chargement des étudiants: ${response.error}`);
+        }
+        setStudents([]);
+        return;
+      }
+      
       if (response.data) {
+        console.log(`${response.data.length} étudiant(s) chargé(s):`, response.data);
         setStudents(response.data);
+        if (response.data.length === 0) {
+          console.warn('Aucun étudiant trouvé. Vérifiez que des étudiants existent dans la base de données avec le rôle "student".');
+        }
+      } else {
+        console.warn('Aucune donnée dans la réponse');
+        setStudents([]);
       }
     } catch (err) {
       console.error('Erreur lors du chargement des étudiants:', err);
+      setError('Erreur lors du chargement des étudiants. Veuillez réessayer.');
+      setStudents([]);
     } finally {
       setLoadingStudents(false);
     }
@@ -358,9 +385,18 @@ const CreateExamModal: React.FC<CreateExamModalProps> = ({ isOpen, onClose, onSu
                       <div className="p-4 text-center text-gray-500 text-sm">
                         Chargement des étudiants...
                       </div>
+                    ) : filteredStudents.length === 0 && searchTerm ? (
+                      <div className="p-4 text-center text-gray-500 text-sm">
+                        Aucun étudiant ne correspond à "{searchTerm}"
+                      </div>
                     ) : filteredStudents.length === 0 ? (
                       <div className="p-4 text-center text-gray-500 text-sm">
-                        Aucun étudiant trouvé
+                        <p>Aucun étudiant trouvé</p>
+                        <p className="text-xs mt-1">
+                          {students.length === 0 
+                            ? "Aucun étudiant dans la base de données. Créez d'abord des étudiants avec le rôle 'student'."
+                            : "Ajustez votre recherche"}
+                        </p>
                       </div>
                     ) : (
                       <div className="divide-y divide-gray-200">

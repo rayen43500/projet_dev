@@ -35,6 +35,7 @@ export const API_ENDPOINTS = {
     ASSIGN_STUDENTS: (id: number) => `/api/v1/exams/${id}/assign-students`,
     GET_STUDENTS: (id: number) => `/api/v1/exams/${id}/students`,
     REMOVE_STUDENT: (examId: number, studentId: number) => `/api/v1/exams/${examId}/students/${studentId}`,
+    GET_STUDENT_EXAMS: (studentId: number) => `/api/v1/exams/student/${studentId}`,
   },
   // Sessions
   SESSIONS: {
