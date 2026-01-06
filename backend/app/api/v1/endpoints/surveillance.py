@@ -270,21 +270,25 @@ async def end_exam_session(
 
 @router.get("/sessions/active")
 async def get_active_sessions(
+    include_completed: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Récupère toutes les sessions actives pour le dashboard
+    Récupère toutes les sessions actives (et optionnellement terminées) pour le dashboard
     """
     # Si l'utilisateur est un étudiant, ne retourner que ses sessions
     if current_user.role == "student":
-        sessions = db.query(ExamSession).filter(
-            ExamSession.student_id == current_user.id,
-            ExamSession.status == "active"
-        ).all()
+        query = db.query(ExamSession).filter(ExamSession.student_id == current_user.id)
+        if not include_completed:
+            query = query.filter(ExamSession.status == "active")
+        sessions = query.all()
     else:
-        # Pour les enseignants/admin, retourner toutes les sessions actives
-        sessions = db.query(ExamSession).filter(ExamSession.status == "active").all()
+        # Pour les enseignants/admin, retourner toutes les sessions
+        query = db.query(ExamSession)
+        if not include_completed:
+            query = query.filter(ExamSession.status == "active")
+        sessions = query.order_by(ExamSession.start_time.desc()).limit(100).all()
     
     from datetime import datetime, timezone
     result = []

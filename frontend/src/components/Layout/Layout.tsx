@@ -18,7 +18,7 @@ const Layout: React.FC = () => {
   const navigation = [
     { name: 'Dashboard', href: '/app/dashboard', icon: LayoutDashboard },
     { name: 'Examens', href: '/app/exams', icon: FileText },
-    { name: 'Sessions', href: '/app/sessions', icon: Monitor },
+    { name: 'Sessions de Surveillance', href: '/app/sessions', icon: Monitor },
     { name: 'Utilisateurs', href: '/app/users', icon: Users },
     { name: 'Paramètres', href: '/app/settings', icon: Settings },
   ];

@@ -9,7 +9,7 @@ import Login from '@/pages/Auth/Login';
 import Home from '@/pages/Home/Home';
 import Dashboard from '@/pages/Dashboard/Dashboard';
 import Exams from '@/pages/Exams/Exams';
-import Sessions from '@/pages/Sessions/Sessions';
+import Sessions from '@/pages/Surveillance/Sessions';
 import Users from '@/pages/Users/Users';
 import Settings from '@/pages/Settings/Settings';
 

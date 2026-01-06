@@ -165,7 +165,7 @@ class ApiService {
   }
 
   async getStudentExams(studentId: number): Promise<Exam[]> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/exams/student/${studentId}`, {
+    const response = await fetch(`${API_BASE_URL}/exams/student/${studentId}`, {
       headers: this.getAuthHeaders()
     });
 
