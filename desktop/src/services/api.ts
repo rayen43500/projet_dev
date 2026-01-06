@@ -165,11 +165,16 @@ class ApiService {
   }
 
   async getStudentExams(studentId: number): Promise<Exam[]> {
-    const response = await fetch(`${API_BASE_URL}/exams/student/${studentId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/exams/student/${studentId}`, {
       headers: this.getAuthHeaders()
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        // Token expiré, nettoyer le localStorage
+        localStorage.removeItem('auth_token');
+        throw new Error('Session expirée. Veuillez vous reconnecter.');
+      }
       throw new Error(`Failed to get exams: ${response.status}`);
     }
 

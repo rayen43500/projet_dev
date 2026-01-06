@@ -35,15 +35,18 @@ class ApiService {
     const token = this.getAuthToken();
     
     // Créer les headers en commençant par les defaults
-    const headers: Record<string, string> = { ...this.defaultHeaders };
+    const headers: HeadersInit = new Headers(this.defaultHeaders);
     
     // Si customHeaders contient un Content-Type, il doit écraser le default
     if (customHeaders) {
-      Object.assign(headers, customHeaders);
+      const customHeadersObj = new Headers(customHeaders);
+      customHeadersObj.forEach((value, key) => {
+        headers.set(key, value);
+      });
     }
 
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+      headers.set('Authorization', `Bearer ${token}`);
     }
 
     return headers;
@@ -76,6 +79,17 @@ class ApiService {
           errorMessage = errorData.detail || errorData.message || errorMessage;
         } catch {
           // Ignorer si le JSON est invalide
+        }
+      }
+
+      // Gérer les erreurs d'authentification
+      if (response.status === 401) {
+        // Supprimer le token invalide
+        localStorage.removeItem('auth_token');
+        // Optionnel : rediriger vers la page de login si on est dans un contexte React Router
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          // Ne pas rediriger automatiquement pour éviter les boucles
+          // La redirection sera gérée par AuthContext
         }
       }
 
@@ -134,7 +148,8 @@ class ApiService {
   ): Promise<ApiResponse<T>> {
     try {
       const headers = this.getHeaders(customHeaders);
-      const contentType = headers['Content-Type'] || (customHeaders as any)?.['Content-Type'];
+      const headersObj = new Headers(headers);
+      const contentType = headersObj.get('Content-Type');
       
       // Si c'est du form-urlencoded, ne pas faire JSON.stringify
       let body: string | undefined;
