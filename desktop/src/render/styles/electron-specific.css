@@ -1,0 +1,388 @@
+/* ========================================
+   STYLES SPÉCIFIQUES ELECTRON DESKTOP
+   ======================================== */
+
+/* Variables spécifiques à l'application Electron */
+:root {
+  --electron-titlebar-height: 3.5rem; /* hauteur de l'en-tête unifié */
+  --electron-nav-height: 0rem; /* non utilisé avec en-tête unique */
+  --electron-content-offset: 4.25rem; /* offset raisonnable pour l'en-tête unique */
+  
+  /* Couleurs spécifiques Electron */
+  --electron-bg-primary: #ffffff;
+  --electron-bg-secondary: #f8fafc;
+  --electron-bg-tertiary: #f1f5f9;
+  
+  /* Ombres Electron */
+  --electron-shadow-light: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+  --electron-shadow-medium: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  --electron-shadow-heavy: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+  
+  /* Transitions Electron */
+  --electron-transition-fast: 150ms ease;
+  --electron-transition-normal: 200ms ease;
+  --electron-transition-slow: 300ms ease;
+}
+
+/* Styles pour la barre de titre Electron */
+.electron-titlebar {
+  -webkit-app-region: drag;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: none;
+  border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+  box-shadow: var(--electron-shadow-light);
+}
+
+.electron-titlebar-button {
+  -webkit-app-region: no-drag;
+  transition: all var(--electron-transition-fast);
+}
+
+.electron-titlebar-button:hover {
+  background: rgba(243, 244, 246, 0.8);
+  transform: scale(1.05);
+}
+
+.electron-titlebar-button.close:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+
+/* Styles pour la navigation Electron */
+.electron-nav {
+  -webkit-app-region: no-drag;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: none;
+  border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+  box-shadow: var(--electron-shadow-light);
+}
+
+.electron-nav-item {
+  transition: all var(--electron-transition-normal);
+  border-radius: 0.5rem;
+}
+
+.electron-nav-item:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--electron-shadow-medium);
+}
+
+.electron-nav-item.active {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  box-shadow: var(--electron-shadow-heavy);
+}
+
+/* Styles pour le contenu principal */
+.electron-content {
+  padding-top: var(--electron-content-offset);
+  min-height: calc(100vh - var(--electron-content-offset));
+}
+
+/* Styles pour les cartes Electron */
+.electron-card {
+  background: var(--electron-bg-primary);
+  border: 1px solid rgba(229, 231, 235, 0.8);
+  border-radius: 1rem;
+  box-shadow: var(--electron-shadow-light);
+  transition: all var(--electron-transition-normal);
+}
+
+.electron-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--electron-shadow-heavy);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+/* Styles pour les boutons Electron */
+.electron-button {
+  transition: all var(--electron-transition-fast);
+  border-radius: 0.75rem;
+  font-weight: 500;
+}
+
+.electron-button:hover {
+  transform: scale(1.02);
+}
+
+.electron-button:active {
+  transform: scale(0.98);
+}
+
+/* Styles pour les inputs Electron */
+.electron-input {
+  background: var(--electron-bg-primary);
+  border: 1px solid rgba(229, 231, 235, 0.8);
+  border-radius: 0.5rem;
+  transition: all var(--electron-transition-fast);
+}
+
+.electron-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  outline: none;
+}
+
+/* Styles pour les modales Electron */
+.electron-modal {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: none;
+}
+
+.electron-modal-content {
+  background: var(--electron-bg-primary);
+  border-radius: 1rem;
+  box-shadow: var(--electron-shadow-heavy);
+  border: 1px solid rgba(229, 231, 235, 0.8);
+}
+
+/* Styles pour les notifications Electron */
+.electron-notification {
+  background: var(--electron-bg-primary);
+  border: 1px solid rgba(229, 231, 235, 0.8);
+  border-radius: 0.75rem;
+  box-shadow: var(--electron-shadow-medium);
+  backdrop-filter: none;
+}
+
+/* Styles pour les badges Electron */
+.electron-badge {
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.electron-badge.primary {
+  background: rgba(59, 130, 246, 0.1);
+  color: #1d4ed8;
+}
+
+.electron-badge.success {
+  background: rgba(16, 185, 129, 0.1);
+  color: #047857;
+}
+
+.electron-badge.warning {
+  background: rgba(245, 158, 11, 0.1);
+  color: #b45309;
+}
+
+.electron-badge.danger {
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+}
+
+/* Styles pour les icônes Electron */
+.electron-icon {
+  transition: all var(--electron-transition-fast);
+}
+
+.electron-icon:hover {
+  transform: scale(1.1);
+}
+
+/* Styles pour les animations Electron */
+@keyframes electron-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes electron-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes electron-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.electron-animate-fade-in {
+  animation: electron-fade-in 0.3s ease-out;
+}
+
+.electron-animate-slide-in {
+  animation: electron-slide-in 0.3s ease-out;
+}
+
+.electron-animate-scale-in {
+  animation: electron-scale-in 0.3s ease-out;
+}
+
+/* Styles pour les scrollbars Electron */
+.electron-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.electron-scrollbar::-webkit-scrollbar-track {
+  background: rgba(243, 244, 246, 0.5);
+  border-radius: 4px;
+}
+
+.electron-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5);
+  border-radius: 4px;
+}
+
+.electron-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(107, 114, 128, 0.7);
+}
+
+/* Styles pour les états de chargement Electron */
+.electron-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.electron-loading::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  animation: electron-shimmer 1.5s infinite;
+}
+
+@keyframes electron-shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* Styles pour les effets de focus Electron */
+.electron-focus-ring:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.electron-focus-ring:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Styles pour les états de survol Electron */
+.electron-hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--electron-shadow-heavy);
+}
+
+.electron-hover-glow:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+/* Styles pour les transitions Electron */
+.electron-transition-all {
+  transition: all var(--electron-transition-normal);
+}
+
+.electron-transition-colors {
+  transition: color var(--electron-transition-fast), background-color var(--electron-transition-fast), border-color var(--electron-transition-fast);
+}
+
+.electron-transition-transform {
+  transition: transform var(--electron-transition-fast);
+}
+
+/* Styles pour les responsive Electron */
+@media (max-width: 768px) {
+  :root {
+    --electron-titlebar-height: 2.5rem;
+    --electron-nav-height: 3.5rem;
+  }
+  
+  .electron-card {
+    border-radius: 0.75rem;
+  }
+  
+  .electron-button {
+    border-radius: 0.5rem;
+  }
+}
+
+/* Styles pour les thèmes sombres Electron */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --electron-bg-primary: #1f2937;
+    --electron-bg-secondary: #111827;
+    --electron-bg-tertiary: #0f172a;
+  }
+  
+  .electron-titlebar {
+    background: rgba(31, 41, 55, 0.95);
+    border-bottom-color: rgba(55, 65, 81, 0.8);
+  }
+  
+  .electron-nav {
+    background: rgba(31, 41, 55, 0.95);
+    border-bottom-color: rgba(55, 65, 81, 0.8);
+  }
+  
+  .electron-card {
+    background: var(--electron-bg-primary);
+    border-color: rgba(55, 65, 81, 0.8);
+  }
+  
+  .electron-input {
+    background: var(--electron-bg-primary);
+    border-color: rgba(55, 65, 81, 0.8);
+    color: #f9fafb;
+  }
+  
+  .electron-input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+  }
+}
+
+/* Styles pour les performances Electron */
+.electron-gpu-accelerated {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.electron-smooth-scroll {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Styles pour l'accessibilité Electron */
+.electron-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.electron-focus-visible:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}

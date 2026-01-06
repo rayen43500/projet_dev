@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProctoFlex AI - Chargement</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .container {
+            text-align: center;
+            max-width: 400px;
+            padding: 2rem;
+        }
+        
+        .spinner {
+            border: 4px solid #374151;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 2rem;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #ffffff;
+        }
+        
+        p {
+            color: #9ca3af;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        
+        .status {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid #3b82f6;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            color: #fca5a5;
+        }
+        
+        .success {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid #22c55e;
+            color: #86efac;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h1>ProctoFlex AI</h1>
+        <p>Chargement de l'application de surveillance...</p>
+        
+        <div class="status" id="status">
+            <strong>État :</strong> Initialisation...
+        </div>
+        
+        <div class="status" id="vite-status">
+            <strong>Serveur Vite :</strong> Vérification...
+        </div>
+        
+        <div class="status" id="backend-status">
+            <strong>Backend :</strong> Vérification...
+        </div>
+    </div>
+
+    <script>
+        // Vérifier le serveur Vite
+        async function checkVite() {
+            try {
+                const response = await fetch('http://localhost:5173');
+                if (response.ok) {
+                    document.getElementById('vite-status').innerHTML = '<strong>Serveur Vite :</strong> ✅ Connecté';
+                    document.getElementById('vite-status').className = 'status success';
+                    return true;
+                }
+            } catch (error) {
+                document.getElementById('vite-status').innerHTML = '<strong>Serveur Vite :</strong> ❌ Non connecté';
+                document.getElementById('vite-status').className = 'status error';
+            }
+            return false;
+        }
+
+        // Vérifier le backend
+        async function checkBackend() {
+            try {
+                const response = await fetch('http://localhost:8000');
+                if (response.ok) {
+                    document.getElementById('backend-status').innerHTML = '<strong>Backend :</strong> ✅ Connecté';
+                    document.getElementById('backend-status').className = 'status success';
+                    return true;
+                }
+            } catch (error) {
+                document.getElementById('backend-status').innerHTML = '<strong>Backend :</strong> ❌ Non connecté';
+                document.getElementById('backend-status').className = 'status error';
+            }
+            return false;
+        }
+
+        // Vérifications périodiques
+        async function checkServices() {
+            const viteOk = await checkVite();
+            const backendOk = await checkBackend();
+            
+            if (viteOk) {
+                document.getElementById('status').innerHTML = '<strong>État :</strong> ✅ Prêt à rediriger vers Vite';
+                document.getElementById('status').className = 'status success';
+                
+                // Rediriger vers Vite après 2 secondes
+                setTimeout(() => {
+                    window.location.href = 'http://localhost:5173';
+                }, 2000);
+            } else {
+                document.getElementById('status').innerHTML = '<strong>État :</strong> ⏳ En attente du serveur Vite...';
+                document.getElementById('status').className = 'status';
+            }
+        }
+
+        // Vérifier immédiatement puis toutes les 3 secondes
+        checkServices();
+        setInterval(checkServices, 3000);
+    </script>
+</body>
+</html>

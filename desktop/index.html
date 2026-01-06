@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ProctoFlex AI - Surveillance d'Examen</title>
+  <meta name="description" content="Application de surveillance intelligente pour examens en ligne" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' http://localhost:* ws://localhost:* https://fonts.googleapis.com https://fonts.gstatic.com;" />
+  
+  <!-- Icônes -->
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  
+  <!-- Préchargement des polices -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  
+  <!-- Styles globaux -->
+  <link rel="stylesheet" href="/src/render/styles/globals.css">
+  <link rel="stylesheet" href="/src/render/styles/design-system.css">
+  <link rel="stylesheet" href="/src/render/styles/electron-specific.css">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="root">
+    <!-- Écran de chargement initial -->
+    <div class="electron-loading-screen" style="
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+      position: relative;
+      overflow: hidden;
+    ">
+      <!-- Particules d'arrière-plan -->
+      <div style="
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: 
+          radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
+          radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+          radial-gradient(circle at 40% 40%, rgba(16, 185, 129, 0.05) 0%, transparent 50%);
+        animation: pulse 4s ease-in-out infinite;
+      "></div>
+      
+      <!-- Logo et spinner -->
+      <div style="
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        z-index: 10;
+        animation: fadeInUp 1s ease-out;
+      ">
+        <div class="loading-spinner electron-animate-spin"></div>
+        
+        <h1 style="
+          margin-top: 32px;
+          font-size: 32px;
+          font-weight: 700;
+          background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          text-align: center;
+          letter-spacing: -0.025em;
+        ">
+          ProctoFlex AI
+        </h1>
+        
+        <p style="
+          margin-top: 16px;
+          color: #94a3b8;
+          text-align: center;
+          max-width: 400px;
+          font-size: 16px;
+          line-height: 1.6;
+          animation: fadeIn 1.5s ease-out 0.5s both;
+        ">
+          Chargement de l'application de surveillance intelligente...
+        </p>
+        
+        <!-- Barre de progression -->
+        <div style="
+          margin-top: 32px;
+          width: 200px;
+          height: 4px;
+          background: rgba(59, 130, 246, 0.2);
+          border-radius: 2px;
+          overflow: hidden;
+          animation: fadeIn 2s ease-out 1s both;
+        ">
+          <div style="
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+            border-radius: 2px;
+            animation: loading 2s ease-in-out infinite;
+          "></div>
+        </div>
+      </div>
+    </div>
+    
+    <style>
+      @keyframes loading {
+        0% { transform: translateX(-100%); }
+        50% { transform: translateX(0%); }
+        100% { transform: translateX(100%); }
+      }
+    </style>
+  </div>
+  
+  <script type="module" src="/src/render/main.tsx"></script>
+</body>
+</html>
