@@ -12,7 +12,8 @@ import {
   Activity,
   Camera,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  FileText
 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -138,9 +139,9 @@ export default function Surveillance(): JSX.Element {
         if (!cameraOk && !micOk) {
           setChecksMessage('Aucun périphérique accessible. Vérifiez les permissions et les connexions.');
         } else if (!cameraOk) {
-          setChecksMessage('Caméra non accessible. Vérifiez les permissions caméra.');
+          setChecksMessage('⚠️ Caméra non accessible. La surveillance nécessite une caméra fonctionnelle.');
         } else if (!micOk) {
-          setChecksMessage('Microphone non accessible. Vérifiez les permissions microphone.');
+          setChecksMessage('ℹ️ Microphone non détecté. La surveillance vidéo peut continuer sans audio.');
         }
         
       } catch (mediaError: any) {
@@ -195,10 +196,26 @@ export default function Surveillance(): JSX.Element {
   async function start() {
     setRunning(true);
     try {
-      // Utiliser exactement la même approche que Identity.tsx qui fonctionne
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // Essayer d'abord avec vidéo et audio
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        console.log('Stream vidéo + audio obtenu avec succès');
+      } catch (audioError: any) {
+        // Si l'audio échoue, essayer seulement avec la vidéo
+        console.warn('Microphone non disponible, démarrage avec vidéo uniquement:', audioError.message);
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          console.log('Stream vidéo obtenu avec succès (sans audio)');
+          setAlerts((a) => [...a, '⚠️ Microphone non disponible - Surveillance vidéo uniquement']);
+        } catch (videoError: any) {
+          throw new Error(`Impossible d'accéder à la caméra: ${videoError.message}`);
+        }
+      }
       
-      console.log('Stream vidéo obtenu avec succès');
+      if (!stream) {
+        throw new Error('Aucun flux média disponible');
+      }
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -210,6 +227,8 @@ export default function Surveillance(): JSX.Element {
         const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
         const examId = sessionStorage.getItem('pf_exam_id');
         const studentId = sessionStorage.getItem('pf_student_id');
+        
+        console.log('🔍 Tentative de démarrage de session:', { examId, studentId, hasToken: !!token });
         
         if (examId && studentId) {
           const response = await fetch('http://localhost:8000/api/v1/surveillance/start-session', { 
@@ -227,16 +246,20 @@ export default function Surveillance(): JSX.Element {
           
           if (response.ok) {
             const data = await response.json();
+            console.log('✅ Session créée avec succès:', data);
             // Stocker le session_id pour l'analyse
             if (data.session_id) {
               sessionStorage.setItem('pf_session_id', data.session_id.toString());
+              console.log('📝 Session ID stocké:', data.session_id);
             }
-            setAlerts((a) => [...a, '✅ Session de surveillance démarrée']);
+            setAlerts((a) => [...a, `✅ Session de surveillance démarrée (ID: ${data.session_id})`]);
           } else {
-            console.log('Erreur démarrage session:', await response.text());
-            setAlerts((a) => [...a, '⚠️ Serveur de surveillance indisponible - Surveillance locale uniquement']);
+            const errorText = await response.text();
+            console.error('❌ Erreur démarrage session:', response.status, errorText);
+            setAlerts((a) => [...a, `⚠️ Erreur serveur (${response.status}): ${errorText.substring(0, 100)}`]);
           }
         } else {
+          console.warn('⚠️ Pas d\'examen actif:', { examId, studentId });
           setAlerts((a) => [...a, '⚠️ Aucun examen actif - Surveillance locale uniquement']);
         }
       } catch (serverError) {
@@ -381,9 +404,26 @@ export default function Surveillance(): JSX.Element {
 
         if (faceRes.ok) {
           const faceJson = await faceRes.json();
-          if (faceJson.face_detected && faceJson.bbox) {
+          if (faceJson.face_detected && faceJson.bbox && Array.isArray(faceJson.bbox) && faceJson.bbox.length >= 4) {
             const [x, y, width, height] = faceJson.bbox as [number, number, number, number];
-            setFaceBox({ x, y, width, height });
+            // Ajuster les coordonnées selon la taille réelle de la vidéo affichée
+            const video = videoRef.current;
+            if (video && video.videoWidth && video.videoHeight) {
+              const videoDisplayWidth = video.clientWidth;
+              const videoDisplayHeight = video.clientHeight;
+              const scaleX = videoDisplayWidth / video.videoWidth;
+              const scaleY = videoDisplayHeight / video.videoHeight;
+              
+              setFaceBox({ 
+                x: x * scaleX, 
+                y: y * scaleY, 
+                width: width * scaleX, 
+                height: height * scaleY 
+              });
+            } else {
+              // Fallback si les dimensions ne sont pas disponibles
+              setFaceBox({ x, y, width, height });
+            }
           } else {
             setFaceBox(null);
           }
@@ -537,7 +577,7 @@ export default function Surveillance(): JSX.Element {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50 theme-dark:from-slate-900 theme-dark:via-slate-800 theme-dark:to-slate-700 text-gray-900 theme-dark:text-gray-100 space-y-6 p-4 sm:p-6 -m-4 sm:-m-6 lg:-m-8" style={{ minHeight: 'calc(100vh - 80px)' }}>
       {/* Header supprimé comme demandé */}
 
       {/* Vérifications préalables */}

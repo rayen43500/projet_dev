@@ -308,13 +308,48 @@ let lastLockConfig: any = {
 
 async function fetchLockConfig() {
   try {
+    // Récupérer la config de base
     const res = await fetch('http://localhost:8000/api/v1/config/lock');
     if (!res.ok) return null;
     const json = await res.json();
+    
+    // Récupérer l'examen actif depuis sessionStorage (via IPC depuis le renderer)
+    // Pour l'instant, on utilise la config par défaut mais on pourrait améliorer cela
+    // en récupérant les applications autorisées depuis l'examen
+    
     lastLockConfig = json || lastLockConfig;
     return json;
   } catch (e) {
     console.error('Erreur fetch lock config:', e);
+    return null;
+  }
+}
+
+// Fonction pour récupérer les applications autorisées depuis l'examen actif
+async function fetchExamAllowedApps(examId: number | null, token?: string | null): Promise<string[] | null> {
+  if (!examId) return null;
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const res = await fetch(`http://localhost:8000/api/v1/exams/${examId}`, { headers });
+    if (!res.ok) return null;
+    const exam = await res.json();
+    if (exam.allowed_apps) {
+      try {
+        const parsed = JSON.parse(exam.allowed_apps);
+        return Array.isArray(parsed) ? parsed : null;
+      } catch {
+        // Si ce n'est pas du JSON, essayer de parser comme une liste séparée par des virgules
+        const apps = exam.allowed_apps.split(',').map((s: string) => s.trim()).filter(Boolean);
+        return apps.length > 0 ? apps : null;
+      }
+    }
+    return null;
+  } catch (e) {
+    console.error('Erreur fetch exam allowed apps:', e);
     return null;
   }
 }
@@ -387,30 +422,95 @@ async function killProcessWindows(procNameLower: string) {
 async function tickProcessMonitor(mainWindow: Electron.BrowserWindow | null) {
   const cfg = await fetchLockConfig();
   const effective = cfg || lastLockConfig;
-  // allowed list currently unused in enforcement; only forbidden list is checked
-  const forbidden: string[] = (effective.forbidden_apps || []).map((s: string) => s.toLowerCase());
-  const autoKill: boolean = !!(effective.policy && effective.policy.auto_kill);
-  const repeatThreshold: number = Math.max(1, Number(effective.policy?.repeat_threshold || 2));
-
-  const procSet = await listProcessNamesSet();
-  if (!procSet.size) return;
-
-  for (const forb of forbidden) {
-    if (forb && procSet.has(forb)) {
-      console.log('[Monitor] Application interdite détectée:', forb);
-      await sendAlert({ type: 'forbidden_app', process: forb });
-      const now = Date.now();
-      if (!lastNotifyAt[forb] || now - lastNotifyAt[forb] > 10000) {
-        lastNotifyAt[forb] = now;
-        if (mainWindow) {
-          mainWindow.webContents.send('student-warning', { app: forb, message: `⚠️ L'application "${forb}" est interdite pendant l'examen.` });
+  
+  // Récupérer l'examen actif depuis sessionStorage (via IPC si possible)
+  let allowedApps: string[] | null = null;
+  try {
+    // Essayer de récupérer l'examen ID et le token depuis le renderer via executeJavaScript
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const [examIdStr, token] = await Promise.all([
+        mainWindow.webContents.executeJavaScript('sessionStorage.getItem("pf_exam_id")').catch(() => null),
+        mainWindow.webContents.executeJavaScript('localStorage.getItem("pf_token") || localStorage.getItem("auth_token")').catch(() => null)
+      ]);
+      
+      if (examIdStr) {
+        const examId = parseInt(examIdStr);
+        if (!isNaN(examId)) {
+          allowedApps = await fetchExamAllowedApps(examId, token || undefined);
         }
       }
-      if (autoKill && process.platform === 'win32') {
-        forbiddenCounters[forb] = (forbiddenCounters[forb] || 0) + 1;
-        if (forbiddenCounters[forb] >= repeatThreshold) {
-          await killProcessWindows(forb);
-          forbiddenCounters[forb] = 0;
+    }
+  } catch (e) {
+    console.log('Impossible de récupérer l\'examen actif:', e);
+  }
+  
+  // Si on a une liste d'applications autorisées, bloquer tout le reste
+  // Sinon, utiliser la liste des applications interdites
+  const procSet = await listProcessNamesSet();
+  if (!procSet.size) return;
+  
+  if (allowedApps && allowedApps.length > 0) {
+    // Mode liste blanche : bloquer tout sauf les applications autorisées
+    const allowedLower = allowedApps.map((s: string) => s.toLowerCase().replace('.exe', ''));
+    const systemProcesses = ['explorer', 'dwm', 'winlogon', 'csrss', 'services', 'lsass', 'svchost', 'system', 'idle'];
+    
+    for (const procName of procSet) {
+      const procBase = procName.replace('.exe', '');
+      // Ignorer les processus système
+      if (systemProcesses.includes(procBase)) continue;
+      
+      // Vérifier si le processus est autorisé
+      const isAllowed = allowedLower.some((allowed: string) => 
+        procBase === allowed || procBase.includes(allowed) || allowed.includes(procBase)
+      );
+      
+      if (!isAllowed) {
+        console.log('[Monitor] Application non autorisée détectée:', procName);
+        await sendAlert({ type: 'forbidden_app', process: procName });
+        const now = Date.now();
+        if (!lastNotifyAt[procName] || now - lastNotifyAt[procName] > 10000) {
+          lastNotifyAt[procName] = now;
+          if (mainWindow) {
+            mainWindow.webContents.send('student-warning', { 
+              app: procName, 
+              message: `⚠️ L'application "${procName}" n'est pas autorisée pendant l'examen.` 
+            });
+          }
+        }
+        const autoKill = !!(effective.policy && effective.policy.auto_kill);
+        const repeatThreshold = Math.max(1, Number(effective.policy?.repeat_threshold || 2));
+        if (autoKill && process.platform === 'win32') {
+          forbiddenCounters[procName] = (forbiddenCounters[procName] || 0) + 1;
+          if (forbiddenCounters[procName] >= repeatThreshold) {
+            await killProcessWindows(procName);
+            forbiddenCounters[procName] = 0;
+          }
+        }
+      }
+    }
+  } else {
+    // Mode liste noire : utiliser la liste des applications interdites
+    const forbidden: string[] = (effective.forbidden_apps || []).map((s: string) => s.toLowerCase());
+    const autoKill: boolean = !!(effective.policy && effective.policy.auto_kill);
+    const repeatThreshold: number = Math.max(1, Number(effective.policy?.repeat_threshold || 2));
+
+    for (const forb of forbidden) {
+      if (forb && procSet.has(forb)) {
+        console.log('[Monitor] Application interdite détectée:', forb);
+        await sendAlert({ type: 'forbidden_app', process: forb });
+        const now = Date.now();
+        if (!lastNotifyAt[forb] || now - lastNotifyAt[forb] > 10000) {
+          lastNotifyAt[forb] = now;
+          if (mainWindow) {
+            mainWindow.webContents.send('student-warning', { app: forb, message: `⚠️ L'application "${forb}" est interdite pendant l'examen.` });
+          }
+        }
+        if (autoKill && process.platform === 'win32') {
+          forbiddenCounters[forb] = (forbiddenCounters[forb] || 0) + 1;
+          if (forbiddenCounters[forb] >= repeatThreshold) {
+            await killProcessWindows(forb);
+            forbiddenCounters[forb] = 0;
+          }
         }
       }
     }

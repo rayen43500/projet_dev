@@ -134,6 +134,12 @@ async def send_alert_to_connections(alert: SecurityAlert, db: Session):
     
     # Envoyer à l'étudiant concerné
     await manager.send_personal_message(message, session.student_id)
+    
+    # Envoyer à TOUS les admins/instructeurs connectés (pour le dashboard)
+    # Récupérer tous les utilisateurs admin/instructeur
+    admin_users = db.query(User).filter(User.role.in_(["admin", "instructor"])).all()
+    for admin_user in admin_users:
+        await manager.send_personal_message(message, admin_user.id)
 
 # Fonction pour obtenir l'utilisateur depuis le token WebSocket
 async def get_user_from_websocket(websocket: WebSocket, token: str = None):
@@ -193,11 +199,25 @@ async def websocket_endpoint(websocket: WebSocket):
         user_id = user.id
         await manager.connect(websocket, user_id)
         
+        # Si l'utilisateur est admin/instructeur, s'abonner automatiquement à toutes les sessions actives
+        if user.role in ["admin", "instructor"]:
+            db_session = SessionLocal()
+            try:
+                from app.core.database import ExamSession
+                active_sessions = db_session.query(ExamSession).filter(ExamSession.status == "active").all()
+                for session in active_sessions:
+                    manager.subscribe_to_session(websocket, session.id)
+                    manager.subscribe_to_exam(websocket, session.exam_id)
+                logger.info(f"Admin/Instructeur {user_id} abonné à {len(active_sessions)} sessions actives")
+            finally:
+                db_session.close()
+        
         # Envoyer un message de bienvenue
         await websocket.send_json({
             "type": "connected",
             "message": "Connexion WebSocket établie",
-            "user_id": user_id
+            "user_id": user_id,
+            "role": user.role
         })
         
         # Écouter les messages du client
