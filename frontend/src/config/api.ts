@@ -32,6 +32,7 @@ export const API_ENDPOINTS = {
     CREATE: '/api/v1/exams',
     UPDATE: (id: number) => `/api/v1/exams/${id}`,
     DELETE: (id: number) => `/api/v1/exams/${id}`,
+    UPLOAD_MATERIAL: (id: number) => `/api/v1/exams/${id}/material`,
     ASSIGN_STUDENTS: (id: number) => `/api/v1/exams/${id}/assign-students`,
     GET_STUDENTS: (id: number) => `/api/v1/exams/${id}/students`,
     REMOVE_STUDENT: (examId: number, studentId: number) => `/api/v1/exams/${examId}/students/${studentId}`,

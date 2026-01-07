@@ -38,6 +38,36 @@ export default function Surveillance(): JSX.Element {
   const timerRef = useRef<number | null>(null);
   const [instructions] = useState<string>('Respectez les consignes de l\'examen. Les logiciels interdits sont bloqués.');
 
+  // Face tracking (cadre jaune)
+  const [faceBox, setFaceBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+
+  // Ouverture rapide du PDF de l'examen depuis l'écran de surveillance
+  async function openExamPdf() {
+    try {
+      const examId = sessionStorage.getItem('pf_exam_id');
+      const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
+      if (!examId || !token) {
+        alert('Aucun examen actif ou vous n\'êtes pas authentifié.');
+        return;
+      }
+
+      const url = `http://localhost:8000/api/v1/exams/${examId}/material`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        alert('Impossible d\'ouvrir le PDF de l\'examen.');
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, '_blank');
+    } catch (e) {
+      console.error('Erreur lors de l\'ouverture du PDF:', e);
+      alert('Erreur lors de l\'ouverture du PDF de l\'examen.');
+    }
+  }
+
   function fmt(sec: number) {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
@@ -334,6 +364,35 @@ export default function Surveillance(): JSX.Element {
           return `ALERT: Nouvelle alerte de surveillance détectée (ID: ${alertId})`;
         });
         setAlerts((prev) => [...alertMessages, ...prev].slice(0, 50));
+      }
+
+      // Appel séparé pour l'analyse du visage (cadre jaune de suivi)
+      try {
+        const faceRes = await fetch('http://localhost:8000/api/v1/surveillance/analyze-face', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` }),
+          },
+          body: JSON.stringify({
+            image_data: dataUrl,
+          }),
+        });
+
+        if (faceRes.ok) {
+          const faceJson = await faceRes.json();
+          if (faceJson.face_detected && faceJson.bbox) {
+            const [x, y, width, height] = faceJson.bbox as [number, number, number, number];
+            setFaceBox({ x, y, width, height });
+          } else {
+            setFaceBox(null);
+          }
+        } else {
+          setFaceBox(null);
+        }
+      } catch {
+        // En cas d'erreur, ne pas casser la surveillance, juste supprimer le cadre
+        setFaceBox(null);
       }
     } catch (error) {
       // Ignorer les erreurs silencieusement pour ne pas spammer la console
@@ -725,6 +784,15 @@ export default function Surveillance(): JSX.Element {
                 >
                   Soumettre l'Examen
                 </Button>
+                <Button
+                  onClick={openExamPdf}
+                  variant="secondary"
+                  size="lg"
+                  icon={FileText}
+                  className="w-full h-12 rounded-xl text-lg font-semibold"
+                >
+                  Ouvrir le PDF de l&apos;examen
+                </Button>
               </div>
             )}
           </div>
@@ -749,6 +817,23 @@ export default function Surveillance(): JSX.Element {
                 className="w-full h-64 sm:h-80 object-cover"
                 style={{ background: '#111827' }}
               />
+              {/* Cadre jaune de suivi du visage */}
+              {running && faceBox && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    border: '3px solid #eab308',
+                    boxShadow: '0 0 0 2px rgba(250,204,21,0.45)',
+                    borderRadius: '10px',
+                    left: `${faceBox.x}px`,
+                    top: `${faceBox.y}px`,
+                    width: `${faceBox.width}px`,
+                    height: `${faceBox.height}px`,
+                    pointerEvents: 'none',
+                    transition: 'all 120ms ease-out',
+                  }}
+                />
+              )}
               {!running && (
                 <div className="absolute inset-0 bg-gray-900/80 flex items-center justify-center">
                   <div className="text-center text-white">

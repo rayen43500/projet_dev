@@ -200,6 +200,9 @@ class FaceRecognitionEngine:
             main_face = faces[0]
             face_visible = main_face['confidence'] >= self.face_detection_confidence
 
+            # Boîte englobante principale (x, y, width, height)
+            main_bbox = main_face.get("bbox")
+
             # Pour l'instant, nous n'analysons pas finement la direction du regard ici.
             # On laisse gaze_not_on_screen à False par défaut.
             return {
@@ -208,6 +211,7 @@ class FaceRecognitionEngine:
                 'face_visible': face_visible,
                 'confidence': float(main_face['confidence']),
                 'face_count': len(faces),
+                'bbox': list(main_bbox) if main_bbox is not None else None,
                 'face_not_detected': False,
                 'gaze_not_on_screen': False,
                 'low_light': low_light,

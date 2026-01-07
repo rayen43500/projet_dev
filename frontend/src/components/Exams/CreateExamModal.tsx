@@ -32,6 +32,7 @@ const CreateExamModal: React.FC<CreateExamModalProps> = ({ isOpen, onClose, onSu
     allowed_apps: '',
     allowed_domains: '',
   });
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -133,7 +134,7 @@ const CreateExamModal: React.FC<CreateExamModalProps> = ({ isOpen, onClose, onSu
         return items;
       }
       
-      throw new Error(`Format invalide pour ${fieldName}. Utilisez JSON: ["item1", "item2"] ou une liste séparée par des virgules`);
+      throw new Error(`Format invalide pour ${fieldName}. Utilisez une liste séparée par des virgules (ex: chrome, firefox) ou un tableau JSON ["item1", "item2"].`);
     }
   };
 
@@ -177,6 +178,20 @@ const CreateExamModal: React.FC<CreateExamModalProps> = ({ isOpen, onClose, onSu
       const response = await apiService.post(API_ENDPOINTS.EXAMS.CREATE, examData);
 
       if (response.data) {
+        const createdExam: any = response.data;
+
+        // Si un PDF est sélectionné, l'uploader après la création
+        if (pdfFile && createdExam?.id) {
+          const uploadResponse = await apiService.uploadFile(
+            API_ENDPOINTS.EXAMS.UPLOAD_MATERIAL(createdExam.id),
+            pdfFile
+          );
+          if (uploadResponse.error) {
+            console.error('Erreur lors de l\'upload du PDF:', uploadResponse.error);
+            // On n'interrompt pas la création de l'examen si l'upload échoue
+          }
+        }
+
         // Réinitialiser le formulaire
         setFormData({
           title: '',
@@ -187,6 +202,7 @@ const CreateExamModal: React.FC<CreateExamModalProps> = ({ isOpen, onClose, onSu
           allowed_apps: '',
           allowed_domains: '',
         });
+        setPdfFile(null);
         setSelectedStudentIds([]);
         setSearchTerm('');
         onSuccess?.();
@@ -326,7 +342,7 @@ const CreateExamModal: React.FC<CreateExamModalProps> = ({ isOpen, onClose, onSu
 
                 <div>
                   <label htmlFor="allowed_apps" className="block text-sm font-medium text-gray-700">
-                    Applications autorisées (JSON)
+                    Applications autorisées
                   </label>
                   <input
                     type="text"
@@ -335,16 +351,16 @@ const CreateExamModal: React.FC<CreateExamModalProps> = ({ isOpen, onClose, onSu
                     value={formData.allowed_apps}
                     onChange={handleChange}
                     className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder='["chrome", "firefox"]'
+                    placeholder="chrome, firefox"
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    Format JSON: ["app1", "app2"]
+                    Entrez une liste séparée par des virgules (ex: chrome, firefox). Un format JSON comme ["chrome","firefox"] est aussi accepté.
                   </p>
                 </div>
 
                 <div>
                   <label htmlFor="allowed_domains" className="block text-sm font-medium text-gray-700">
-                    Domaines autorisés (JSON)
+                    Domaines autorisés
                   </label>
                   <input
                     type="text"
@@ -353,10 +369,29 @@ const CreateExamModal: React.FC<CreateExamModalProps> = ({ isOpen, onClose, onSu
                     value={formData.allowed_domains}
                     onChange={handleChange}
                     className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder='["example.com", "docs.example.com"]'
+                    placeholder="example.com, docs.example.com"
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    Format JSON: ["domain1.com", "domain2.com"]
+                    Entrez une liste séparée par des virgules (ex: example.com, docs.example.com).
+                  </p>
+                </div>
+
+                {/* Upload du PDF */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    PDF de l&apos;examen (optionnel)
+                  </label>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    className="mt-1 block w-full text-sm text-gray-700"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setPdfFile(file);
+                    }}
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Téléversez le sujet d&apos;examen au format PDF; il sera visible dans l&apos;application desktop.
                   </p>
                 </div>
 
