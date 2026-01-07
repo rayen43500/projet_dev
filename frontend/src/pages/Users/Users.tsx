@@ -19,6 +19,11 @@ const Users: React.FC = () => {
   const [users, setUsers] = useState<UserData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editForm, setEditForm] = useState<Partial<UserData> & { is_active?: boolean; role?: string }>({});
+  const [saving, setSaving] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   useEffect(() => {
     loadUsers();
@@ -39,6 +44,60 @@ const Users: React.FC = () => {
       console.error('Erreur:', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const openEditModal = (user: UserData) => {
+    setSelectedUser(user);
+    setEditForm({
+      full_name: user.full_name,
+      email: user.email,
+      username: user.username,
+      role: user.role,
+      is_active: user.is_active,
+    });
+    setModalError(null);
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditChange = (field: keyof typeof editForm, value: any) => {
+    setEditForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSaveUser = async () => {
+    if (!selectedUser) return;
+
+    setSaving(true);
+    setModalError(null);
+    try {
+      const payload: Record<string, any> = {};
+      if (editForm.full_name !== undefined) payload.full_name = editForm.full_name;
+      if (editForm.email !== undefined) payload.email = editForm.email;
+      if (editForm.username !== undefined) payload.username = editForm.username;
+      if (editForm.role !== undefined) payload.role = editForm.role;
+      if (editForm.is_active !== undefined) payload.is_active = editForm.is_active;
+
+      const response = await apiService.put(
+        API_ENDPOINTS.USERS.UPDATE(selectedUser.id),
+        payload
+      );
+
+      if (response.error) {
+        setModalError(response.error || "Erreur lors de la mise à jour de l'utilisateur");
+        return;
+      }
+
+      // Rafraîchir la liste et fermer le modal
+      await loadUsers();
+      setIsEditModalOpen(false);
+      setSelectedUser(null);
+    } catch (err: any) {
+      setModalError(err.message || "Erreur lors de la mise à jour de l'utilisateur");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -283,6 +342,7 @@ const Users: React.FC = () => {
                         <div className="flex space-x-2">
                           <button 
                             className="text-indigo-600 hover:text-indigo-900"
+                            onClick={() => openEditModal(user)}
                             title="Modifier"
                           >
                             <Edit className="h-4 w-4" />
@@ -306,6 +366,113 @@ const Users: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Modal d'édition utilisateur */}
+      {isEditModalOpen && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Modifier l'utilisateur
+            </h2>
+
+            {modalError && (
+              <div className="mb-3 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">
+                {modalError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Nom complet
+                </label>
+                <input
+                  type="text"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  value={editForm.full_name ?? ''}
+                  onChange={(e) => handleEditChange('full_name', e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  value={editForm.email ?? ''}
+                  onChange={(e) => handleEditChange('email', e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Nom d'utilisateur
+                </label>
+                <input
+                  type="text"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  value={editForm.username ?? ''}
+                  onChange={(e) => handleEditChange('username', e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Rôle
+                  </label>
+                  <select
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    value={editForm.role ?? 'student'}
+                    onChange={(e) => handleEditChange('role', e.target.value)}
+                  >
+                    <option value="student">Étudiant</option>
+                    <option value="instructor">Enseignant</option>
+                    <option value="admin">Administrateur</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center mt-6">
+                  <input
+                    id="is_active"
+                    type="checkbox"
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    checked={editForm.is_active ?? false}
+                    onChange={(e) => handleEditChange('is_active', e.target.checked)}
+                  />
+                  <label htmlFor="is_active" className="ml-2 block text-sm text-gray-700">
+                    Compte actif
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                type="button"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
+                onClick={() => {
+                  setIsEditModalOpen(false);
+                  setSelectedUser(null);
+                }}
+                disabled={saving}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                onClick={handleSaveUser}
+                disabled={saving}
+              >
+                {saving ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -31,6 +31,20 @@ const Exams: React.FC = () => {
   const [exams, setExams] = useState<ExamDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
+  const [examDetails, setExamDetails] = useState<any | null>(null);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{
+    title: string;
+    description: string;
+    duration_minutes: number;
+    start_time: string;
+    end_time: string;
+    is_active: boolean;
+  } | null>(null);
 
   const loadExams = async () => {
     try {
@@ -90,6 +104,123 @@ const Exams: React.FC = () => {
   useEffect(() => {
     loadExams();
   }, []);
+
+  const loadExamDetails = async (id: number) => {
+    setModalLoading(true);
+    setModalError(null);
+    try {
+      const response = await apiService.get(API_ENDPOINTS.EXAMS.GET(id));
+      if (response.error) {
+        setModalError(response.error);
+        return null;
+      }
+      if (response.data) {
+        setExamDetails(response.data);
+        return response.data;
+      }
+      return null;
+    } catch (err: any) {
+      setModalError(err.message || "Erreur lors du chargement de l'examen");
+      return null;
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const openViewExam = async (id: number) => {
+    setSelectedExamId(id);
+    const details = await loadExamDetails(id);
+    if (details) {
+      setIsViewModalOpen(true);
+      setIsEditModalOpen(false);
+    }
+  };
+
+  const openEditExam = async (id: number) => {
+    setSelectedExamId(id);
+    const details = await loadExamDetails(id);
+    if (details) {
+      setEditForm({
+        title: details.title || "",
+        description: details.description || "",
+        duration_minutes: details.duration_minutes || 60,
+        start_time: details.start_time
+          ? new Date(details.start_time).toISOString().slice(0, 16)
+          : "",
+        end_time: details.end_time
+          ? new Date(details.end_time).toISOString().slice(0, 16)
+          : "",
+        is_active: details.is_active ?? true,
+      });
+      setIsEditModalOpen(true);
+      setIsViewModalOpen(false);
+    }
+  };
+
+  const handleEditChange = (
+    field: keyof NonNullable<typeof editForm>,
+    value: any
+  ) => {
+    setEditForm((prev) =>
+      prev
+        ? {
+            ...prev,
+            [field]: value,
+          }
+        : prev
+    );
+  };
+
+  const handleSaveExam = async () => {
+    if (!selectedExamId || !editForm) return;
+    setModalLoading(true);
+    setModalError(null);
+    try {
+      const payload = {
+        title: editForm.title,
+        description: editForm.description,
+        duration_minutes: editForm.duration_minutes,
+        start_time: new Date(editForm.start_time).toISOString(),
+        end_time: new Date(editForm.end_time).toISOString(),
+        is_active: editForm.is_active,
+      };
+      const response = await apiService.put(
+        API_ENDPOINTS.EXAMS.UPDATE(selectedExamId),
+        payload
+      );
+      if (response.error) {
+        setModalError(
+          response.error || "Erreur lors de la mise à jour de l'examen"
+        );
+        return;
+      }
+      await loadExams();
+      setIsEditModalOpen(false);
+      setSelectedExamId(null);
+    } catch (err: any) {
+      setModalError(
+        err.message || "Erreur lors de la mise à jour de l'examen"
+      );
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleDeleteExam = async (id: number) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer cet examen ?")) {
+      return;
+    }
+    try {
+      const response = await apiService.delete(API_ENDPOINTS.EXAMS.DELETE(id));
+      if (response.error) {
+        alert(response.error || "Erreur lors de la suppression de l'examen");
+        return;
+      }
+      await loadExams();
+    } catch (err: any) {
+      alert(err.message || "Erreur lors de la suppression de l'examen");
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -210,13 +341,25 @@ const Exams: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
-                        <button className="text-blue-600 hover:text-blue-900">
+                        <button
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Voir les détails"
+                          onClick={() => openViewExam(exam.id)}
+                        >
                           <Eye className="h-4 w-4" />
                         </button>
-                        <button className="text-indigo-600 hover:text-indigo-900">
+                        <button
+                          className="text-indigo-600 hover:text-indigo-900"
+                          title="Modifier"
+                          onClick={() => openEditExam(exam.id)}
+                        >
                           <Edit className="h-4 w-4" />
                         </button>
-                        <button className="text-red-600 hover:text-red-900">
+                        <button
+                          className="text-red-600 hover:text-red-900"
+                          title="Supprimer"
+                          onClick={() => handleDeleteExam(exam.id)}
+                        >
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
@@ -229,6 +372,212 @@ const Exams: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Modal de visualisation d'examen */}
+      {isViewModalOpen && examDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-lg shadow-xl max-w-xl w-full p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Détails de l'examen
+            </h2>
+
+            {modalError && (
+              <div className="mb-3 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">
+                {modalError}
+              </div>
+            )}
+
+            {modalLoading ? (
+              <div className="py-4 text-gray-500 text-sm">Chargement...</div>
+            ) : (
+              <div className="space-y-3 text-sm text-gray-700">
+                <div>
+                  <span className="font-medium">Titre : </span>
+                  {examDetails.title}
+                </div>
+                {examDetails.description && (
+                  <div>
+                    <span className="font-medium">Description : </span>
+                    {examDetails.description}
+                  </div>
+                )}
+                <div>
+                  <span className="font-medium">Durée : </span>
+                  {examDetails.duration_minutes} minutes
+                </div>
+                <div>
+                  <span className="font-medium">Début : </span>
+                  {examDetails.start_time
+                    ? new Date(examDetails.start_time).toLocaleString("fr-FR")
+                    : "-"}
+                </div>
+                <div>
+                  <span className="font-medium">Fin : </span>
+                  {examDetails.end_time
+                    ? new Date(examDetails.end_time).toLocaleString("fr-FR")
+                    : "-"}
+                </div>
+                <div>
+                  <span className="font-medium">Statut : </span>
+                  {examDetails.is_active ? "Actif" : "Inactif"}
+                </div>
+                {examDetails.assigned_students_count !== undefined && (
+                  <div>
+                    <span className="font-medium">Étudiants assignés : </span>
+                    {examDetails.assigned_students_count}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                type="button"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
+                onClick={() => {
+                  setIsViewModalOpen(false);
+                  setSelectedExamId(null);
+                }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal d'édition d'examen */}
+      {isEditModalOpen && editForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-lg shadow-xl max-w-xl w-full p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Modifier l'examen
+            </h2>
+
+            {modalError && (
+              <div className="mb-3 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">
+                {modalError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Titre
+                </label>
+                <input
+                  type="text"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  value={editForm.title}
+                  onChange={(e) => handleEditChange("title", e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Description
+                </label>
+                <textarea
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  rows={3}
+                  value={editForm.description}
+                  onChange={(e) =>
+                    handleEditChange("description", e.target.value)
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Durée (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    value={editForm.duration_minutes}
+                    onChange={(e) =>
+                      handleEditChange(
+                        "duration_minutes",
+                        parseInt(e.target.value, 10) || 0
+                      )
+                    }
+                  />
+                </div>
+                <div className="flex items-center mt-6">
+                  <input
+                    id="exam_is_active"
+                    type="checkbox"
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    checked={editForm.is_active}
+                    onChange={(e) =>
+                      handleEditChange("is_active", e.target.checked)
+                    }
+                  />
+                  <label
+                    htmlFor="exam_is_active"
+                    className="ml-2 block text-sm text-gray-700"
+                  >
+                    Examen actif
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Début
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    value={editForm.start_time}
+                    onChange={(e) =>
+                      handleEditChange("start_time", e.target.value)
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Fin
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    value={editForm.end_time}
+                    onChange={(e) =>
+                      handleEditChange("end_time", e.target.value)
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                type="button"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
+                onClick={() => {
+                  setIsEditModalOpen(false);
+                  setSelectedExamId(null);
+                }}
+                disabled={modalLoading}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                onClick={handleSaveExam}
+                disabled={modalLoading}
+              >
+                {modalLoading ? "Enregistrement..." : "Enregistrer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de création */}
       <CreateExamModal
