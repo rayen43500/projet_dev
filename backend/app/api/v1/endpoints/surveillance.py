@@ -388,29 +388,41 @@ async def get_recent_alerts(
         ).order_by(SecurityAlert.timestamp.desc()).limit(limit).all()
     else:
         # Pour les enseignants/admin, retourner toutes les alertes récentes (avec ou sans session)
+        # Inclure les alertes de type forbidden_app même sans session
         alerts = db.query(SecurityAlert).order_by(
             SecurityAlert.timestamp.desc()
         ).limit(limit).all()
     
-    logger.info(f"Récupération de {len(alerts)} alertes pour l'utilisateur {current_user.id} (rôle: {current_user.role})")
+    logger.info(f"📊 Récupération de {len(alerts)} alertes pour l'utilisateur {current_user.id} (rôle: {current_user.role})")
+    if len(alerts) > 0:
+        logger.info(f"   Types d'alertes: {[a.alert_type for a in alerts]}")
+        logger.info(f"   Alertes avec session: {sum(1 for a in alerts if a.session_id is not None)}")
+        logger.info(f"   Alertes sans session: {sum(1 for a in alerts if a.session_id is None)}")
     
     result = []
     for alert in alerts:
         # Récupérer la session, l'étudiant et l'examen si session_id existe
-        student_name = "Inconnu"
-        exam_title = "Examen inconnu"
+        student_name = None
+        exam_title = None
         
         if alert.session_id:
             session = db.query(ExamSession).filter(ExamSession.id == alert.session_id).first()
             if session:
                 student = db.query(User).filter(User.id == session.student_id).first()
                 exam = db.query(Exam).filter(Exam.id == session.exam_id).first()
-                student_name = student.full_name if student else "Inconnu"
-                exam_title = exam.title if exam else "Examen inconnu"
-        else:
-            # Pour les alertes sans session, essayer de récupérer l'examen via exam_id si disponible
-            # Note: SecurityAlert n'a pas directement exam_id, mais on peut le déduire de la description
-            pass
+                student_name = student.full_name if student else None
+                exam_title = exam.title if exam else None
+        
+        # Pour les alertes sans session (comme les alertes de logiciels interdits),
+        # essayer d'extraire des informations de la description ou utiliser des valeurs par défaut
+        if not student_name and not exam_title:
+            # Pour les alertes de type forbidden_app, indiquer que c'est une alerte système
+            if alert.alert_type == "forbidden_app":
+                student_name = "Système"
+                exam_title = "Surveillance globale"
+            else:
+                student_name = "Non assigné"
+                exam_title = "Alerte système"
         
         # Calculer le temps écoulé
         time_diff = datetime.now(timezone.utc) - alert.timestamp
@@ -428,14 +440,18 @@ async def get_recent_alerts(
         
         result.append({
             "id": alert.id,
-            "type": alert.alert_type,
+            "alert_type": alert.alert_type,  # Utiliser alert_type pour cohérence avec le frontend
+            "type": alert.alert_type,  # Garder aussi type pour compatibilité
             "student": student_name,
+            "student_name": student_name,  # Alias pour le frontend
             "exam": exam_title,
+            "exam_name": exam_title,  # Alias pour le frontend
             "time": time_str,
             "severity": alert.severity.lower() if alert.severity else "low",
             "description": alert.description,
             "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
-            "session_id": alert.session_id
+            "session_id": alert.session_id,
+            "is_resolved": alert.is_resolved if hasattr(alert, 'is_resolved') else False
         })
     
     return result

@@ -24,6 +24,41 @@ declare global {
 }
 
 export default function Surveillance(): JSX.Element {
+  // Injecter les styles CSS pour les animations de toast
+  useEffect(() => {
+    const styleId = 'pf-toast-animations';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        @keyframes slideIn {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        @keyframes slideOut {
+          from {
+            transform: translateX(0);
+            opacity: 1;
+          }
+          to {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    
+    return () => {
+      // Nettoyer le style à la démontage (optionnel)
+    };
+  }, []);
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [alerts, setAlerts] = useState<string[]>([]);
@@ -687,49 +722,111 @@ export default function Surveillance(): JSX.Element {
 
     // Subscribe to student warnings from main process (alertes de processus interdits)
     const off = window.electronAPI?.onStudentWarning?.((payload: any) => {
+      console.log('🔔 Alerte reçue du main process:', payload);
       const msg = payload?.message || 'Application non autorisée détectée';
       const appName = payload?.app || 'Application inconnue';
       
       // Message formaté pour l'affichage
       const alertMessage = `🚫 ${msg}`;
       
-      // Popup in-app (non système)
-      try {
-        const container = document.getElementById('pf-toast-container') || (() => {
-          const c = document.createElement('div');
-          c.id = 'pf-toast-container';
-          c.style.position = 'fixed';
-          c.style.right = '16px';
-          c.style.top = '16px';
-          c.style.zIndex = '99999';
-          document.body.appendChild(c);
-          return c;
-        })();
-        const toast = document.createElement('div');
-        toast.style.background = '#dc2626';
-        toast.style.color = 'white';
-        toast.style.padding = '12px 16px';
-        toast.style.marginTop = '8px';
-        toast.style.borderRadius = '8px';
-        toast.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)';
-        toast.textContent = alertMessage;
-        container.appendChild(toast);
-        setTimeout(() => { 
-          if (container.contains(toast)) {
-            container.removeChild(toast);
-          }
-        }, 5000);
-      } catch {}
+      // Liste des processus système à ignorer (même côté frontend pour éviter le spam)
+      const systemProcessesToIgnore = [
+        'trustedinstaller', 'tiworker', 'startmenuexperiencehost', 'runtimebroker',
+        'dllhost', 'vmwp', 'vmmem', 'vmmemwsl', 'docker', 'dockerd', 'docker desktop',
+        'nvsphelper64', 'nvidia', 'nvcontainer', 'nvidia overlay',
+        'explorer', 'dwm', 'winlogon', 'csrss', 'services', 'lsass', 'svchost', 'system'
+      ];
       
-      // Ajouter à la liste des alertes avec déduplication
+      const appNameLower = appName.toLowerCase().replace('.exe', '').trim();
+      const isSystemProcess = systemProcessesToIgnore.some(sysProc => 
+        appNameLower === sysProc || 
+        appNameLower.includes(sysProc) || 
+        sysProc.includes(appNameLower)
+      );
+      
+      if (isSystemProcess) {
+        console.log('⚙️ Processus système ignoré (frontend):', appName);
+        return; // Ne pas afficher d'alerte pour les processus système
+      }
+      
+      // Ajouter à la liste des alertes avec déduplication stricte
       const now = Date.now();
       const alertKey = `forbidden_app_${appName}`;
       const lastTime = lastAlertTime.current[alertKey] || 0;
+      const DEDUP_INTERVAL = 60000; // 60 secondes entre les mêmes alertes (augmenté pour réduire le spam)
       
-      if (now - lastTime > 5000) { // 5 secondes entre les mêmes alertes d'applications
-        setAlerts((prev) => [alertMessage, ...prev].slice(0, 50));
+      if (now - lastTime > DEDUP_INTERVAL) {
+        setAlerts((prev) => {
+          // Limiter à 20 alertes max pour éviter la surcharge
+          // Regrouper les alertes similaires
+          const newAlerts = [alertMessage, ...prev].slice(0, 20);
+          console.log('📋 Alertes mises à jour:', newAlerts.length, 'alertes');
+          return newAlerts;
+        });
         lastAlertTime.current[alertKey] = now;
-        console.log('🚫 Alerte processus interdite reçue:', appName);
+        console.log('🚫 Alerte processus interdite ajoutée:', appName);
+      } else {
+        const timeRemaining = Math.ceil((DEDUP_INTERVAL - (now - lastTime)) / 1000);
+        console.log(`⏭️ Alerte ignorée (déjà affichée il y a ${Math.ceil((now - lastTime) / 1000)}s, ${timeRemaining}s restants):`, appName);
+      }
+      
+      // Popup in-app (non système) - Afficher seulement si pas déjà affichée récemment
+      const toastKey = `toast_${appName}`;
+      const lastToastTime = lastAlertTime.current[toastKey] || 0;
+      const TOAST_DEDUP_INTERVAL = 30000; // 30 secondes entre les toasts pour la même app
+      
+      if (now - lastToastTime > TOAST_DEDUP_INTERVAL) {
+        try {
+          const container = document.getElementById('pf-toast-container') || (() => {
+            const c = document.createElement('div');
+            c.id = 'pf-toast-container';
+            c.style.position = 'fixed';
+            c.style.right = '16px';
+            c.style.top = '16px';
+            c.style.zIndex = '99999';
+            c.style.maxWidth = '400px';
+            document.body.appendChild(c);
+            return c;
+          })();
+          
+          // Limiter le nombre de toasts simultanés à 3
+          const existingToasts = container.children.length;
+          if (existingToasts >= 3) {
+            // Supprimer le plus ancien
+            if (container.firstChild) {
+              container.removeChild(container.firstChild);
+            }
+          }
+          
+          const toast = document.createElement('div');
+          toast.style.background = '#dc2626';
+          toast.style.color = 'white';
+          toast.style.padding = '12px 16px';
+          toast.style.marginTop = '8px';
+          toast.style.borderRadius = '8px';
+          toast.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)';
+          toast.style.fontWeight = '500';
+          toast.style.animation = 'slideIn 0.3s ease-out';
+          toast.textContent = alertMessage;
+          container.appendChild(toast);
+          lastAlertTime.current[toastKey] = now;
+          console.log('🔴 Toast affiché pour:', appName);
+          
+          setTimeout(() => { 
+            if (container.contains(toast)) {
+              toast.style.animation = 'slideOut 0.3s ease-out';
+              setTimeout(() => {
+                if (container.contains(toast)) {
+                  container.removeChild(toast);
+                }
+              }, 300);
+            }
+          }, 4000); // Afficher pendant 4 secondes
+        } catch (e) {
+          console.error('❌ Erreur création toast:', e);
+        }
+      } else {
+        console.log('⏭️ Toast ignoré (déjà affiché récemment):', appName);
       }
     });
 

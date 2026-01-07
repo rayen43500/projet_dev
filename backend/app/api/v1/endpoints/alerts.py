@@ -87,7 +87,7 @@ async def create_desktop_alert(
         # On enregistre quand même l'alerte sans session associée, mais elle ne sera pas liée à un examen précis
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"Création d'alerte sans session: type={payload.type}, severity={payload.severity}, description={description[:100]}")
+        logger.info(f"Création d'alerte sans session: type={payload.type}, severity={payload.severity}, process={payload.process}, description={description[:100]}")
         
         alert = SecurityAlert(
             session_id=None,
@@ -98,12 +98,16 @@ async def create_desktop_alert(
         db.add(alert)
         db.commit()
         db.refresh(alert)
-        logger.info(f"Alerte créée avec succès: id={alert.id}, session_id=None")
+        logger.info(f"✅ Alerte créée avec succès: id={alert.id}, type={alert.alert_type}, severity={alert.severity}, session_id=None")
+        logger.info(f"   Description: {alert.description}")
         # Envoyer via WebSocket même sans session
         await send_alert_to_connections(alert, db)
         return {"id": alert.id, "session_bound": False}
 
     # Créer une SecurityAlert liée à la session d'examen
+    import logging
+    logger = logging.getLogger(__name__)
+    
     alert = SecurityAlert(
         session_id=session_obj.id,
         alert_type=payload.type,
@@ -113,6 +117,9 @@ async def create_desktop_alert(
     db.add(alert)
     db.commit()
     db.refresh(alert)
+    
+    logger.info(f"✅ Alerte créée avec succès: id={alert.id}, type={alert.alert_type}, severity={alert.severity}, session_id={session_obj.id}")
+    logger.info(f"   Description: {alert.description}")
 
     await send_alert_to_connections(alert, db)
 
