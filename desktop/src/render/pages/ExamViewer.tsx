@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, FileText, CheckCircle, AlertCircle, Play, Pause, Square, Clock } from 'lucide-react';
+import { ArrowLeft, FileText, CheckCircle, AlertCircle, Play, Pause, Square, Clock, Video, Shield } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import PDFViewer from '../components/PDFViewer';
+import Button from '../components/ui/Button';
+import Card from '../components/ui/Card';
 import type { Exam as ApiExam } from '../../services/api';
 
 type Exam = ApiExam & { pdf_path?: string | null };
@@ -15,6 +18,7 @@ interface ExamViewerProps {
 const API_BASE = 'http://localhost:8000/api/v1';
 
 export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: ExamViewerProps): JSX.Element {
+  const navigate = useNavigate();
   const [timeLeft, setTimeLeft] = useState(exam.duration_minutes * 60); // en secondes
   const [isRunning, setIsRunning] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -22,6 +26,7 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
   const [showPDF, setShowPDF] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [surveillanceStarted, setSurveillanceStarted] = useState(false);
   const hasPdf = Boolean(exam.pdf_filename || (exam as any).pdf_path);
 
   useEffect(() => {
@@ -59,7 +64,7 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
       setLoading(true);
       setError(null);
       
-      const token = localStorage.getItem('pf_token');
+      const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
       if (!token) {
         throw new Error("Vous n'êtes pas authentifié. Veuillez vous reconnecter.");
       }
@@ -80,6 +85,9 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
       setStatus('started');
       // Ouvrir automatiquement le PDF à démarrage
       setShowPDF(true);
+      
+      // Démarrer automatiquement la surveillance
+      startSurveillance();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur de connexion');
     } finally {
@@ -92,7 +100,7 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
       setLoading(true);
       setError(null);
       
-      const token = localStorage.getItem('pf_token');
+      const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
       if (!token) {
         throw new Error("Vous n'êtes pas authentifié. Veuillez vous reconnecter.");
       }
@@ -136,6 +144,22 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
 
   async function loadPDF() {
     setShowPDF(true);
+  }
+
+  function startSurveillance() {
+    try {
+      // Stocker un flag pour demander démarrage auto
+      sessionStorage.setItem('pf_autostart_surv', '1');
+      sessionStorage.setItem('pf_exam_id', exam.id);
+      sessionStorage.setItem('pf_student_id', studentId.toString());
+      setSurveillanceStarted(true);
+      
+      // Naviguer vers la page de surveillance dans un nouvel onglet/fenêtre si possible
+      // Sinon, ouvrir dans la même page
+      navigate('/surveillance');
+    } catch (err) {
+      console.error('Erreur lors du démarrage de la surveillance:', err);
+    }
   }
 
   function getStatusColor(status: string) {
@@ -225,18 +249,19 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
           {/* Contenu principal */}
           <div className="lg:col-span-2 space-y-6">
             {/* Informations de l'examen */}
-            <div className="pf-card">
+            <Card className="p-6 bg-white rounded-xl shadow-lg border border-gray-200">
               <div className="flex items-start justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">Informations de l'examen</h2>
                 {hasPdf && (
-                  <button
+                  <Button
                     onClick={loadPDF}
                     disabled={loading}
-                    className="pf-button secondary flex items-center gap-2"
+                    variant="secondary"
+                    size="sm"
                   >
-                    <FileText className="h-4 w-4" />
+                    <FileText className="h-4 w-4 mr-2" />
                     {showPDF ? 'Masquer PDF' : 'Voir PDF'}
-                  </button>
+                  </Button>
                 )}
               </div>
               
@@ -265,10 +290,10 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
                   </div>
                 </div>
               )}
-            </div>
+            </Card>
 
             {/* Zone de travail */}
-            <div className="pf-card">
+            <Card className="p-6 bg-white rounded-xl shadow-lg border border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Zone de travail</h3>
               {isCompleted ? (
                 <div className="text-center py-8">
@@ -277,19 +302,61 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
                   <p className="text-gray-600">Votre examen a été soumis avec succès.</p>
                 </div>
               ) : status === 'assigned' ? (
-                <div className="text-center py-8">
-                  <Play className="h-16 w-16 text-blue-500 mx-auto mb-4" />
-                  <h4 className="text-xl font-semibold text-gray-900 mb-2">Prêt à commencer ?</h4>
-                  <p className="text-gray-600 mb-6">
-                    Vous avez {exam.duration_minutes} minutes pour compléter cet examen.
-                  </p>
-                  <button
-                    onClick={startExam}
-                    disabled={loading}
-                    className="pf-button primary text-lg px-8 py-3"
-                  >
-                    {loading ? 'Démarrage...' : 'Commencer l\'examen'}
-                  </button>
+                <div className="text-center py-8 space-y-6">
+                  <div>
+                    <Play className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+                    <h4 className="text-xl font-semibold text-gray-900 mb-2">Prêt à commencer ?</h4>
+                    <p className="text-gray-600 mb-6">
+                      Vous avez {exam.duration_minutes} minutes pour compléter cet examen.
+                    </p>
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                    <Button
+                      onClick={startExam}
+                      disabled={loading}
+                      variant="primary"
+                      size="lg"
+                      className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg hover:shadow-xl px-8 py-3 text-base font-semibold min-w-[200px]"
+                    >
+                      {loading ? (
+                        <>
+                          <span className="animate-spin mr-2">⏳</span>
+                          Démarrage...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-5 h-5 mr-2" />
+                          Démarrer l'examen
+                        </>
+                      )}
+                    </Button>
+                    
+                    {!surveillanceStarted && (
+                      <Button
+                        onClick={startSurveillance}
+                        variant="secondary"
+                        size="lg"
+                        className="bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 text-white shadow-lg hover:shadow-xl px-8 py-3 text-base font-semibold min-w-[200px]"
+                      >
+                        <Video className="w-5 h-5 mr-2" />
+                        Démarrer la surveillance
+                      </Button>
+                    )}
+                    
+                    {surveillanceStarted && (
+                      <div className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-800 rounded-lg">
+                        <Shield className="w-5 h-5" />
+                        <span className="font-semibold">Surveillance active</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm text-yellow-800">
+                      <strong>⚠️ Important :</strong> La surveillance vidéo et audio sera activée automatiquement lorsque vous démarrerez l'examen. Assurez-vous que votre caméra et votre micro sont fonctionnels.
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -297,20 +364,20 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
                     <h4 className="text-lg font-semibold text-gray-900">Examen en cours</h4>
                     <div className="flex gap-2">
                       {isRunning ? (
-                        <button onClick={pauseExam} className="pf-button secondary flex items-center gap-2">
-                          <Pause className="h-4 w-4" />
+                        <Button onClick={pauseExam} variant="secondary" size="md">
+                          <Pause className="h-4 w-4 mr-2" />
                           Pause
-                        </button>
+                        </Button>
                       ) : (
-                        <button onClick={resumeExam} className="pf-button primary flex items-center gap-2">
-                          <Play className="h-4 w-4" />
+                        <Button onClick={resumeExam} variant="primary" size="md">
+                          <Play className="h-4 w-4 mr-2" />
                           Reprendre
-                        </button>
+                        </Button>
                       )}
-                      <button onClick={stopExam} className="pf-button danger flex items-center gap-2">
-                        <Square className="h-4 w-4" />
+                      <Button onClick={stopExam} variant="danger" size="md">
+                        <Square className="h-4 w-4 mr-2" />
                         Terminer
-                      </button>
+                      </Button>
                     </div>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
@@ -318,7 +385,7 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
                   </div>
                 </div>
               )}
-            </div>
+            </Card>
 
             {/* Affichage du PDF */}
             {showPDF && (
@@ -333,7 +400,7 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Timer */}
-            <div className="pf-card">
+            <Card className="p-6 bg-white rounded-xl shadow-lg border border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Temps restant</h3>
               <div className="text-center">
                 <div className={`text-4xl font-mono font-bold ${timeLeft < 300 ? 'text-red-600' : 'text-gray-900'}`}>
@@ -343,35 +410,79 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
                   {isRunning ? 'En cours' : isCompleted ? 'Terminé' : 'En pause'}
                 </div>
               </div>
-            </div>
+            </Card>
 
             {/* Actions rapides */}
-            <div className="pf-card">
+            <Card className="p-6 bg-white rounded-xl shadow-lg border border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Actions</h3>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {hasPdf && (
-                  <button onClick={loadPDF} className="w-full pf-button secondary flex items-center justify-center gap-2">
-                    <FileText className="h-4 w-4" />
+                  <Button
+                    onClick={loadPDF}
+                    variant="secondary"
+                    size="md"
+                    className="w-full justify-center"
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
                     Voir le PDF
-                  </button>
+                  </Button>
                 )}
                 {!isCompleted && status === 'assigned' && (
-                  <button onClick={startExam} disabled={loading} className="w-full pf-button primary flex items-center justify-center gap-2">
-                    <Play className="h-4 w-4" />
-                    Commencer
-                  </button>
+                  <>
+                    <Button
+                      onClick={startExam}
+                      disabled={loading}
+                      variant="primary"
+                      size="lg"
+                      className="w-full justify-center bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg"
+                    >
+                      {loading ? (
+                        <>
+                          <span className="animate-spin mr-2">⏳</span>
+                          Démarrage...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-5 h-5 mr-2" />
+                          Démarrer l'examen
+                        </>
+                      )}
+                    </Button>
+                    {!surveillanceStarted && (
+                      <Button
+                        onClick={startSurveillance}
+                        variant="secondary"
+                        size="md"
+                        className="w-full justify-center bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 text-white"
+                      >
+                        <Video className="w-4 h-4 mr-2" />
+                        Activer la surveillance
+                      </Button>
+                    )}
+                    {surveillanceStarted && (
+                      <div className="flex items-center justify-center gap-2 px-4 py-2 bg-green-100 text-green-800 rounded-lg border border-green-200">
+                        <Shield className="w-4 h-4" />
+                        <span className="text-sm font-semibold">Surveillance active</span>
+                      </div>
+                    )}
+                  </>
                 )}
                 {!isCompleted && status === 'started' && (
-                  <button onClick={stopExam} className="w-full pf-button danger flex items-center justify-center gap-2">
-                    <Square className="h-4 w-4" />
-                    Terminer
-                  </button>
+                  <Button
+                    onClick={stopExam}
+                    variant="danger"
+                    size="md"
+                    className="w-full justify-center"
+                  >
+                    <Square className="w-4 h-4 mr-2" />
+                    Terminer l'examen
+                  </Button>
                 )}
               </div>
-            </div>
+            </Card>
 
             {/* Aide */}
-            <div className="pf-card">
+            <Card className="p-6 bg-white rounded-xl shadow-lg border border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Aide</h3>
               <div className="text-sm text-gray-600 space-y-2">
                 <p>• Cliquez sur "Commencer" pour démarrer l'examen</p>
@@ -379,7 +490,7 @@ export default function ExamViewer({ exam, studentId, onBack, onExamComplete }: 
                 <p>• Vous pouvez mettre en pause et reprendre</p>
                 <p>• Cliquez sur "Terminer" pour soumettre</p>
               </div>
-            </div>
+            </Card>
           </div>
         </div>
 

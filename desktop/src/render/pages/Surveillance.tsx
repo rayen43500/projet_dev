@@ -166,7 +166,7 @@ export default function Surveillance(): JSX.Element {
     setRunning(true);
     try {
       // Utiliser exactement la même approche que Identity.tsx qui fonctionne
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       
       console.log('Stream vidéo obtenu avec succès');
       
@@ -177,10 +177,37 @@ export default function Surveillance(): JSX.Element {
       
       // Démarrer la session de surveillance
       try {
-        await fetch('http://localhost:8000/api/v1/surveillance/start', { 
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
+        const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
+        const examId = sessionStorage.getItem('pf_exam_id');
+        const studentId = sessionStorage.getItem('pf_student_id');
+        
+        if (examId && studentId) {
+          const response = await fetch('http://localhost:8000/api/v1/surveillance/start-session', { 
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              ...(token && { 'Authorization': `Bearer ${token}` })
+            },
+            body: JSON.stringify({
+              exam_id: parseInt(examId),
+              student_id: parseInt(studentId)
+            })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            // Stocker le session_id pour l'analyse
+            if (data.session_id) {
+              sessionStorage.setItem('pf_session_id', data.session_id.toString());
+            }
+            setAlerts((a) => [...a, '✅ Session de surveillance démarrée']);
+          } else {
+            console.log('Erreur démarrage session:', await response.text());
+            setAlerts((a) => [...a, '⚠️ Serveur de surveillance indisponible - Surveillance locale uniquement']);
+          }
+        } else {
+          setAlerts((a) => [...a, '⚠️ Aucun examen actif - Surveillance locale uniquement']);
+        }
       } catch (serverError) {
         console.log('Serveur de surveillance non disponible:', serverError);
         setAlerts((a) => [...a, '⚠️ Serveur de surveillance indisponible - Surveillance locale uniquement']);
@@ -238,12 +265,36 @@ export default function Surveillance(): JSX.Element {
       tracks.forEach((t) => t.stop());
       video.srcObject = null;
     }
-    await fetch('http://localhost:8000/api/v1/surveillance/stop', { method: 'POST' }).catch(() => {});
+    // Arrêter la session de surveillance si elle existe
+    try {
+      const sessionId = sessionStorage.getItem('pf_session_id');
+      const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
+      
+      if (sessionId) {
+        await fetch(`http://localhost:8000/api/v1/surveillance/session/${sessionId}/end`, {
+          method: 'POST',
+          headers: {
+            ...(token && { 'Authorization': `Bearer ${token}` })
+          }
+        }).catch(() => {});
+        sessionStorage.removeItem('pf_session_id');
+      }
+    } catch {
+      // Ignorer les erreurs lors de l'arrêt
+    }
   }
 
   async function captureAndAnalyze() {
     try {
       if (!videoRef.current) return;
+      
+      // Récupérer le session_id depuis sessionStorage
+      const sessionId = sessionStorage.getItem('pf_session_id');
+      if (!sessionId) {
+        // Pas de session active, ne pas envoyer d'analyse
+        return;
+      }
+      
       const canvas = document.createElement('canvas');
       const video = videoRef.current;
       canvas.width = video.videoWidth || 640;
@@ -252,16 +303,40 @@ export default function Surveillance(): JSX.Element {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
       const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-      const payload = { session_id: 'demo', video_frame: base64, timestamp: new Date().toISOString() } as const;
-      const res = await fetch('http://localhost:8000/api/v1/surveillance/analyze', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
+      
+      // L'endpoint attend session_id en query param et video_frame en body
+      const res = await fetch(`http://localhost:8000/api/v1/surveillance/analyze?session_id=${sessionId}`, {
+        method: 'POST', 
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }, 
+        body: JSON.stringify({
+          video_frame: base64,
+          timestamp: new Date().toISOString()
+        })
       });
-      if (!res.ok) return;
+      
+      if (!res.ok) {
+        // Ne pas spammer les erreurs si c'est juste une erreur de validation
+        if (res.status !== 422) {
+          console.log('Erreur analyse:', res.status, await res.text().catch(() => ''));
+        }
+        return;
+      }
+      
       const json = await res.json();
-      const newAlerts: string[] = (json.alerts || []).map((a: any) => `${a.severity?.toUpperCase() || 'INFO'}: ${a.message || a.type}`);
-      if (newAlerts.length > 0) setAlerts((prev) => [...newAlerts, ...prev].slice(0, 50));
-    } catch {
-      // ignore
+      // Le backend retourne une liste d'alertes créées
+      if (json.alerts_created && json.alerts_created.length > 0) {
+        const alertMessages = json.alerts_created.map((alertId: number) => {
+          return `ALERT: Nouvelle alerte de surveillance détectée (ID: ${alertId})`;
+        });
+        setAlerts((prev) => [...alertMessages, ...prev].slice(0, 50));
+      }
+    } catch (error) {
+      // Ignorer les erreurs silencieusement pour ne pas spammer la console
+      console.log('Erreur analyse (ignorée):', error);
     }
   }
 
@@ -324,19 +399,25 @@ export default function Surveillance(): JSX.Element {
         setCameraOk(videoOk);
         setMicOk(audioOk);
         
-        // Vérifier le réseau
+        // Vérifier le réseau en testant un endpoint qui existe
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
           
-          const response = await fetch('http://localhost:8000/api/v1/health', {
+          // Tester avec l'endpoint auth/me qui existe toujours
+          const response = await fetch('http://localhost:8000/api/v1/auth/me', {
             method: 'GET',
+            headers: {
+              ...(token && { 'Authorization': `Bearer ${token}` })
+            },
             signal: controller.signal,
           });
           
           clearTimeout(timeoutId);
-          setNetworkOk(response.ok);
-          console.log('Réseau auto-vérifié:', response.ok);
+          // Considérer comme OK si on obtient une réponse (même 401 = serveur accessible)
+          setNetworkOk(response.status !== 0 && response.status < 500);
+          console.log('Réseau auto-vérifié:', response.status !== 0 && response.status < 500);
         } catch (networkError) {
           console.log('Réseau non accessible:', networkError);
           setNetworkOk(false);

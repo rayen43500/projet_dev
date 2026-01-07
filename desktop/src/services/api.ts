@@ -30,8 +30,13 @@ type LoginResponse = {
 };
 
 class ApiService {
+  private getAuthToken(): string | null {
+    // Support des deux noms de token pour compatibilité
+    return localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
+  }
+
   private getAuthHeaders() {
-    const token = localStorage.getItem('pf_token');
+    const token = this.getAuthToken();
     return {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` })
@@ -133,7 +138,7 @@ class ApiService {
   }
 
   private getUserFromToken(): User {
-    const token = localStorage.getItem('pf_token');
+    const token = this.getAuthToken();
     if (!token) {
       throw new Error('No token available');
     }
@@ -169,14 +174,15 @@ class ApiService {
       headers: this.getAuthHeaders()
     });
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        // Token expiré, nettoyer le localStorage
-        localStorage.removeItem('auth_token');
-        throw new Error('Session expirée. Veuillez vous reconnecter.');
+      if (!response.ok) {
+        if (response.status === 401) {
+          // Token expiré, nettoyer le localStorage
+          localStorage.removeItem('pf_token');
+          localStorage.removeItem('auth_token');
+          throw new Error('Session expirée. Veuillez vous reconnecter.');
+        }
+        throw new Error(`Failed to get exams: ${response.status}`);
       }
-      throw new Error(`Failed to get exams: ${response.status}`);
-    }
 
     return response.json();
   }

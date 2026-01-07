@@ -37,7 +37,7 @@ export default function PDFViewer({
     try {
       setIsLoading(true);
       setError(null);
-      const token = localStorage.getItem('pf_token');
+      const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
       const url = `${API_BASE}/exams/${examId}/material`;
       const res = await fetch(url, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined
@@ -56,7 +56,7 @@ export default function PDFViewer({
   };
 
   const handleDownload = async () => {
-    const token = localStorage.getItem('pf_token');
+    const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
     const url = `${API_BASE}/exams/${examId}/material`;
     const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
     if (!res.ok) {
@@ -75,7 +75,7 @@ export default function PDFViewer({
   };
 
   const handleOpenExternal = async () => {
-    const token = localStorage.getItem('pf_token');
+    const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
     const url = `${API_BASE}/exams/${examId}/material`;
     const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
     if (!res.ok) {

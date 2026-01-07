@@ -150,7 +150,11 @@ export default function Exams(): JSX.Element {
 
   async function downloadPDF(examId: string) {
     try {
-      const token = localStorage.getItem('pf_token');
+      const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
+      if (!token) {
+        alert('Vous devez être connecté pour télécharger le PDF');
+        return;
+      }
       const response = await fetch(`http://localhost:8000/api/v1/exams/${examId}/material`, {
         headers: {
           'Authorization': `Bearer ${token}`

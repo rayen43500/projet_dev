@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   BookOpen, 
   User, 
@@ -22,6 +23,41 @@ interface AppLayoutProps {
   onLogout?: () => void;
 }
 
+function UserInfo() {
+  const { user, logout } = useAuth();
+  
+  if (!user) {
+    return null;
+  }
+
+  return (
+    <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-white/90 to-blue-50/90 rounded-xl border border-gray-200/60 shadow-sm">
+      <div className="w-8 h-8 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center shadow">
+        <span className="text-xs font-bold text-white">
+          {(user.name || user.email || 'U').charAt(0).toUpperCase()}
+        </span>
+      </div>
+      <div className="hidden md:block">
+        <p className="text-sm font-bold text-gray-900 leading-none truncate max-w-[120px]">
+          {user.name || 'Étudiant'}
+        </p>
+        <p className="text-xs text-gray-600 truncate max-w-[120px]">
+          {user.email || 'user@example.com'}
+        </p>
+      </div>
+      <Button
+        onClick={logout}
+        variant="ghost"
+        size="sm"
+        icon={LogOut}
+        className="text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all duration-200 rounded-lg p-2"
+      >
+        <span className="hidden lg:inline">Déconnexion</span>
+      </Button>
+    </div>
+  );
+}
+
 export default function AppLayout({ 
   children, 
   onNavigate,
@@ -29,7 +65,7 @@ export default function AppLayout({
 }: AppLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [notifications] = useState();
+  const [notifications] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Fonctions de contrôle de fenêtre
@@ -185,6 +221,7 @@ export default function AppLayout({
                 />
               </div>
             </div>
+            
             {/* Utilisateur + Notifications + Fenêtre */}
             <div className="flex items-center gap-2 sm:gap-3" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
               {/* Notifications */}
@@ -201,24 +238,7 @@ export default function AppLayout({
               </button>
 
               {/* User */}
-              <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-white/90 to-blue-50/90 rounded-xl border border-gray-200/60 shadow-sm">
-                <div className="w-8 h-8 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center shadow">
-                  <User className="w-4 h-4 text-white" />
-                </div>
-                <div className="hidden md:block">
-                  <p className="text-sm font-bold text-gray-900 leading-none">Étudiant</p>
-                  <p className="text-xs text-gray-600">desktop_user@example.com</p>
-                </div>
-                <Button
-                  onClick={onLogout}
-                  variant="ghost"
-                  size="sm"
-                  icon={LogOut}
-                  className="text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all duration-200 rounded-lg p-2"
-                >
-                  <span className="hidden lg:inline">Déconnexion</span>
-                </Button>
-              </div>
+              <UserInfo />
 
               {/* Window controls */}
               <div className="flex items-center gap-2 ml-2">

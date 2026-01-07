@@ -105,39 +105,52 @@ export default function ModernExamCard({
           <Button
             onClick={() => onStart(exam)}
             variant="primary"
-            size="sm"
-            className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg"
+            size="lg"
+            className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg hover:shadow-xl px-6 py-3 text-base font-semibold"
           >
-            <Play className="w-4 h-4 mr-2" />
-            Commencer l'examen
+            <Play className="w-5 h-5 mr-2" />
+            Démarrer l'examen
           </Button>
         );
       case 'started':
         return (
-          <Button
-            onClick={() => onContinue(exam)}
-            variant="warning"
-            size="sm"
-            className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 shadow-lg"
-          >
-            <Play className="w-4 h-4 mr-2" />
-            Continuer
-          </Button>
+          <>
+            <Button
+              onClick={() => onContinue(exam)}
+              variant="warning"
+              size="lg"
+              className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 shadow-lg hover:shadow-xl px-6 py-3 text-base font-semibold"
+            >
+              <Play className="w-5 h-5 mr-2" />
+              Continuer l'examen
+            </Button>
+          </>
         );
       case 'completed':
         return (
           <Button
             onClick={() => onView(exam)}
             variant="secondary"
-            size="sm"
-            className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg"
+            size="lg"
+            className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg hover:shadow-xl px-6 py-3 text-base font-semibold"
           >
-            <Eye className="w-4 h-4 mr-2" />
+            <Eye className="w-5 h-5 mr-2" />
             Voir les résultats
           </Button>
         );
       default:
-        return null;
+        // Toujours afficher un bouton pour démarrer même si le statut est inconnu
+        return (
+          <Button
+            onClick={() => onStart(exam)}
+            variant="primary"
+            size="lg"
+            className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg hover:shadow-xl px-6 py-3 text-base font-semibold"
+          >
+            <Play className="w-5 h-5 mr-2" />
+            Démarrer l'examen
+          </Button>
+        );
     }
   };
 
@@ -241,8 +254,8 @@ export default function ModernExamCard({
         )}
 
         {/* Actions */}
-        <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between pt-4 border-t border-gray-200 gap-4">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               onClick={() => onDetails(exam)}
               variant="ghost"
@@ -266,7 +279,7 @@ export default function ModernExamCard({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end">
             {getActionButton()}
           </div>
         </div>

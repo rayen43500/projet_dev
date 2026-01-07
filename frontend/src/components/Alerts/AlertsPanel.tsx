@@ -32,10 +32,19 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ sessionId, examId, limit = 50
     // Charger les alertes récentes
     loadRecentAlerts();
 
+    // Rafraîchir les alertes toutes les 10 secondes
+    const refreshInterval = setInterval(() => {
+      loadRecentAlerts();
+    }, 10000);
+
     // Configurer WebSocket
     const token = localStorage.getItem('auth_token');
     if (token) {
-      wsService.connect(token);
+      try {
+        wsService.connect(token);
+      } catch (error) {
+        console.error('Erreur connexion WebSocket:', error);
+      }
 
       // S'abonner aux alertes en temps réel
       const unsubscribe = wsService.onAlert((alertMessage: AlertMessage) => {
@@ -72,23 +81,77 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ sessionId, examId, limit = 50
       return () => {
         unsubscribe();
         unsubscribeConnection();
+        clearInterval(refreshInterval);
       };
     }
 
     return () => {
+      clearInterval(refreshInterval);
       // Ne pas déconnecter globalement, juste nettoyer les callbacks
     };
   }, [sessionId, examId, limit]);
 
   const loadRecentAlerts = async () => {
-    setLoading(true);
     try {
       const response = await apiService.get<Alert[]>(API_ENDPOINTS.SURVEILLANCE.RECENT_ALERTS);
+      console.log('📊 Alertes reçues:', response.data);
+      
       if (response.data) {
-        setAlerts(response.data);
+        // Mapper les données si nécessaire
+        const mappedAlerts = Array.isArray(response.data) ? response.data.map((alert: any) => {
+          // L'API retourne: id, type, student, exam, time, severity, description, timestamp
+          return {
+            id: alert.id,
+            type: alert.alert_type || alert.type || 'unknown',
+            severity: (alert.severity || 'low').toLowerCase() as 'low' | 'medium' | 'high' | 'critical',
+            description: alert.description || 'Alerte de surveillance détectée',
+            timestamp: alert.timestamp || alert.created_at || new Date().toISOString(),
+            student: alert.student_name || alert.student || undefined,
+            exam: alert.exam_name || alert.exam || undefined,
+            session_id: alert.session_id,
+            exam_id: alert.exam_id,
+            is_resolved: alert.is_resolved || false,
+          };
+        }) : [];
+        
+        console.log('✅ Alertes mappées:', mappedAlerts);
+        setAlerts(mappedAlerts);
+        
+        if (mappedAlerts.length === 0) {
+          console.log('ℹ️ Aucune alerte trouvée dans la réponse');
+        }
+      } else {
+        console.log('⚠️ Aucune donnée dans la réponse');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur lors du chargement des alertes:', error);
+      // En cas d'erreur, essayer de charger depuis les sessions actives
+      try {
+        const sessionsResponse = await apiService.get(API_ENDPOINTS.SURVEILLANCE.ACTIVE_SESSIONS);
+        if (sessionsResponse.data && Array.isArray(sessionsResponse.data)) {
+          // Extraire les alertes des sessions
+          const alertsFromSessions: Alert[] = [];
+          sessionsResponse.data.forEach((session: any) => {
+            if (session.alerts_count > 0) {
+              alertsFromSessions.push({
+                id: session.id,
+                type: 'session_alert',
+                severity: session.risk_level === 'high' ? 'high' : 'medium',
+                description: `${session.alerts_count} alerte(s) détectée(s) dans la session`,
+                timestamp: session.start_time || new Date().toISOString(),
+                student: session.student_name || session.student,
+                exam: session.exam_name || session.exam,
+                session_id: session.id,
+              });
+            }
+          });
+          if (alertsFromSessions.length > 0) {
+            setAlerts(alertsFromSessions);
+          }
+        }
+      } catch (innerError) {
+        console.error('Erreur lors du chargement alternatif des alertes:', innerError);
+      }
     } finally {
       setLoading(false);
     }
@@ -138,12 +201,28 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ sessionId, examId, limit = 50
   return (
     <div className="bg-white rounded-lg shadow">
       <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Alertes en temps réel</h3>
-        <div className="flex items-center space-x-2">
-          <div className={`h-2 w-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-xs text-gray-500">
-            {isConnected ? 'Connecté' : 'Déconnecté'}
-          </span>
+        <div className="flex items-center space-x-3">
+          <h3 className="text-lg font-semibold text-gray-900">Alertes en temps réel</h3>
+          {alerts.length > 0 && (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+              {alerts.length} alerte{alerts.length > 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={loadRecentAlerts}
+            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+            title="Rafraîchir les alertes"
+          >
+            Actualiser
+          </button>
+          <div className="flex items-center space-x-2">
+            <div className={`h-2 w-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+            <span className="text-xs text-gray-500">
+              {isConnected ? 'Connecté' : 'Déconnecté'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -174,12 +253,14 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ sessionId, examId, limit = 50
                       <span className="text-xs text-gray-500">{formatTime(alert.timestamp)}</span>
                     </div>
                     <p className="text-sm font-medium text-gray-900 mb-1">
-                      {alert.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      {alert.type ? alert.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Alerte de surveillance'}
                     </p>
-                    <p className="text-sm text-gray-600">{alert.description}</p>
-                    {alert.student && (
+                    <p className="text-sm text-gray-600">{alert.description || 'Alerte détectée pendant la session'}</p>
+                    {(alert.student || alert.exam) && (
                       <p className="text-xs text-gray-500 mt-1">
-                        Étudiant: {alert.student} {alert.exam && `• Examen: ${alert.exam}`}
+                        {alert.student && `Étudiant: ${alert.student}`}
+                        {alert.student && alert.exam && ' • '}
+                        {alert.exam && `Examen: ${alert.exam}`}
                       </p>
                     )}
                   </div>

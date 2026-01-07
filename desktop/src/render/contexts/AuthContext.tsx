@@ -52,9 +52,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [user]);
 
+  const getAuthToken = (): string | null => {
+    // Support des deux noms de token pour compatibilité
+    return localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
+  };
+
   const checkAuth = async () => {
     try {
-      const token = localStorage.getItem('pf_token');
+      const token = getAuthToken();
       if (!token) {
         setIsLoading(false);
         return;
@@ -68,6 +73,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Si erreur 401, le token est invalide, le supprimer
         if (error.message?.includes('Session expirée') || error.message?.includes('401')) {
           localStorage.removeItem('pf_token');
+          localStorage.removeItem('auth_token');
           setUser(null);
         } else {
           // Autre erreur, utiliser un fallback temporaire
@@ -90,7 +96,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const login = async (email: string, password: string) => {
     try {
       const response = await apiService.login(email, password);
+      // Stocker dans les deux pour compatibilité
       localStorage.setItem('pf_token', response.access_token);
+      localStorage.setItem('auth_token', response.access_token);
 
       // Le backend renvoie user_id, username, email, role dans la réponse login
       if (response.user_id || response.username || response.email) {
@@ -147,7 +155,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         full_name: userData.full_name,
         face_image_base64: userData.face_image_base64
       });
+      // Stocker dans les deux pour compatibilité
       localStorage.setItem('pf_token', response.access_token);
+      localStorage.setItem('auth_token', response.access_token);
       
       // Récupérer les données utilisateur
       const userInfo = await apiService.getCurrentUser();
@@ -159,6 +169,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = () => {
     localStorage.removeItem('pf_token');
+    localStorage.removeItem('auth_token');
     setUser(null);
     try {
       if ((window as any).electronAPI?.setStudentIdentity) {
