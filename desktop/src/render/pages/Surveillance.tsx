@@ -17,16 +17,19 @@ import {
 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+import { useAuth } from '../contexts/AuthContext';
 
 declare global {
   interface Window { electronAPI?: any }
 }
 
 export default function Surveillance(): JSX.Element {
+  const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [alerts, setAlerts] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const intervalRef = useRef<number | null>(null);
+  const lastAlertTime = useRef<Record<string, number>>({}); // Pour éviter le spam d'alertes
 
   // Pre-exam checks
   const [cameraOk, setCameraOk] = useState<boolean | null>(null);
@@ -207,7 +210,8 @@ export default function Surveillance(): JSX.Element {
         try {
           stream = await navigator.mediaDevices.getUserMedia({ video: true });
           console.log('Stream vidéo obtenu avec succès (sans audio)');
-          setAlerts((a) => [...a, '⚠️ Microphone non disponible - Surveillance vidéo uniquement']);
+          // Message informatif mais pas alarmant
+          setAlerts((a) => [...a, 'ℹ️ Surveillance démarrée en mode vidéo uniquement (microphone non disponible)']);
         } catch (videoError: any) {
           throw new Error(`Impossible d'accéder à la caméra: ${videoError.message}`);
         }
@@ -225,10 +229,44 @@ export default function Surveillance(): JSX.Element {
       // Démarrer la session de surveillance
       try {
         const token = localStorage.getItem('pf_token') || localStorage.getItem('auth_token');
-        const examId = sessionStorage.getItem('pf_exam_id');
-        const studentId = sessionStorage.getItem('pf_student_id');
+        let examId = sessionStorage.getItem('pf_exam_id');
+        let studentId = sessionStorage.getItem('pf_student_id');
         
-        console.log('🔍 Tentative de démarrage de session:', { examId, studentId, hasToken: !!token });
+        // Si pas dans sessionStorage, essayer de récupérer depuis le contexte d'authentification
+        if (!studentId && user?.id) {
+          studentId = user.id.toString();
+          sessionStorage.setItem('pf_student_id', studentId);
+          console.log('📝 Student ID récupéré depuis AuthContext:', studentId);
+        }
+        
+        // Si pas d'examen dans sessionStorage, essayer de trouver un examen actif depuis l'API
+        if (!examId && studentId && token) {
+          try {
+            const examsResponse = await fetch(`http://localhost:8000/api/v1/exams?student_id=${studentId}`, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            
+            if (examsResponse.ok) {
+              const examsData = await examsResponse.json();
+              // Trouver le premier examen actif ou assigné
+              const activeExam = Array.isArray(examsData) ? examsData.find((e: any) => 
+                e.is_active && (e.exam_status === 'assigned' || e.exam_status === 'started')
+              ) : null;
+              
+              if (activeExam) {
+                examId = activeExam.id.toString();
+                sessionStorage.setItem('pf_exam_id', examId);
+                console.log('📝 Examen actif trouvé depuis l\'API:', examId);
+              }
+            }
+          } catch (examFetchError) {
+            console.log('Impossible de récupérer les examens:', examFetchError);
+          }
+        }
+        
+        console.log('🔍 Tentative de démarrage de session:', { examId, studentId, hasToken: !!token, userId: user?.id });
         
         if (examId && studentId) {
           const response = await fetch('http://localhost:8000/api/v1/surveillance/start-session', { 
@@ -259,7 +297,11 @@ export default function Surveillance(): JSX.Element {
             setAlerts((a) => [...a, `⚠️ Erreur serveur (${response.status}): ${errorText.substring(0, 100)}`]);
           }
         } else {
-          console.warn('⚠️ Pas d\'examen actif:', { examId, studentId });
+          console.warn('⚠️ Pas d\'examen actif:', { examId, studentId, userId: user?.id });
+          // Stocker quand même le studentId si disponible pour le monitoring des processus
+          if (studentId && !sessionStorage.getItem('pf_student_id')) {
+            sessionStorage.setItem('pf_student_id', studentId);
+          }
           setAlerts((a) => [...a, '⚠️ Aucun examen actif - Surveillance locale uniquement']);
         }
       } catch (serverError) {
@@ -381,12 +423,65 @@ export default function Surveillance(): JSX.Element {
       }
       
       const json = await res.json();
-      // Le backend retourne une liste d'alertes créées
-      if (json.alerts_created && json.alerts_created.length > 0) {
-        const alertMessages = json.alerts_created.map((alertId: number) => {
-          return `ALERT: Nouvelle alerte de surveillance détectée (ID: ${alertId})`;
-        });
-        setAlerts((prev) => [...alertMessages, ...prev].slice(0, 50));
+      console.log('📊 Résultat analyse:', json);
+      
+      // Le backend retourne une liste d'alertes créées avec détails
+      // Note: json.alerts_created est un nombre, pas un booléen
+      if (json.alerts_created && json.alerts_created > 0) {
+        console.log('🚨 Alertes créées:', json.alert_ids, json.alert_details);
+        
+        const now = Date.now();
+        const newAlertMessages: string[] = [];
+        
+        // Utiliser les détails des alertes si disponibles, sinon utiliser les IDs
+        if (json.alert_details && json.alert_details.length > 0) {
+          json.alert_details.forEach((alert: any) => {
+            // Éviter le spam : ne pas afficher la même alerte plus d'une fois toutes les 10 secondes
+            const alertKey = `${alert.type}_${alert.severity}`;
+            const lastTime = lastAlertTime.current[alertKey] || 0;
+            
+            if (now - lastTime > 10000) { // 10 secondes entre les mêmes alertes
+              const severityEmoji = alert.severity === 'high' || alert.severity === 'critical' ? '🔴' : 
+                                    alert.severity === 'medium' ? '🟡' : '🟢';
+              const alertMessage = `${severityEmoji} ${alert.description}`;
+              newAlertMessages.push(alertMessage);
+              lastAlertTime.current[alertKey] = now;
+            }
+          });
+        } else if (json.alert_ids && json.alert_ids.length > 0) {
+          json.alert_ids.forEach((alertId: number) => {
+            const alertKey = `alert_${alertId}`;
+            const lastTime = lastAlertTime.current[alertKey] || 0;
+            
+            if (now - lastTime > 10000) {
+              newAlertMessages.push(`🚨 ALERTE: Nouvelle alerte de surveillance détectée (ID: ${alertId})`);
+              lastAlertTime.current[alertKey] = now;
+            }
+          });
+        }
+        
+        if (newAlertMessages.length > 0) {
+          setAlerts((prev) => [...newAlertMessages, ...prev].slice(0, 50));
+        }
+      } else {
+        console.log('ℹ️ Aucune alerte créée lors de cette analyse');
+        
+        // Afficher les informations de l'analyse même s'il n'y a pas d'alerte
+        if (json.face_analysis) {
+          const faceInfo = json.face_analysis;
+          if (faceInfo.face_detected) {
+            console.log('✅ Visage détecté - Confiance:', faceInfo.confidence?.toFixed(2), '- Luminosité:', faceInfo.low_light ? 'FAIBLE ⚠️' : 'NORMALE ✅');
+          } else {
+            console.log('⚠️ Aucun visage détecté');
+          }
+          if (faceInfo.multiple_faces) {
+            console.log('⚠️ Plusieurs visages détectés');
+          }
+        }
+        
+        if (json.suspicious_objects && json.suspicious_objects.suspicious_objects_detected) {
+          console.log('⚠️ Objets suspects détectés:', json.suspicious_objects.objects_found);
+        }
       }
 
       // Appel séparé pour l'analyse du visage (cadre jaune de suivi)
@@ -404,8 +499,17 @@ export default function Surveillance(): JSX.Element {
 
         if (faceRes.ok) {
           const faceJson = await faceRes.json();
+          console.log('👤 Analyse visage:', { 
+            face_detected: faceJson.face_detected, 
+            bbox: faceJson.bbox,
+            low_light: faceJson.low_light,
+            multiple_faces: faceJson.multiple_faces
+          });
+          
           if (faceJson.face_detected && faceJson.bbox && Array.isArray(faceJson.bbox) && faceJson.bbox.length >= 4) {
             const [x, y, width, height] = faceJson.bbox as [number, number, number, number];
+            console.log('📦 Coordonnées visage brutes:', { x, y, width, height });
+            
             // Ajuster les coordonnées selon la taille réelle de la vidéo affichée
             const video = videoRef.current;
             if (video && video.videoWidth && video.videoHeight) {
@@ -414,24 +518,30 @@ export default function Surveillance(): JSX.Element {
               const scaleX = videoDisplayWidth / video.videoWidth;
               const scaleY = videoDisplayHeight / video.videoHeight;
               
-              setFaceBox({ 
+              const scaledBox = {
                 x: x * scaleX, 
                 y: y * scaleY, 
                 width: width * scaleX, 
                 height: height * scaleY 
-              });
+              };
+              
+              console.log('📦 Coordonnées visage ajustées:', scaledBox);
+              setFaceBox(scaledBox);
             } else {
-              // Fallback si les dimensions ne sont pas disponibles
+              console.warn('⚠️ Dimensions vidéo non disponibles, utilisation des coordonnées brutes');
               setFaceBox({ x, y, width, height });
             }
           } else {
+            console.log('❌ Pas de visage détecté ou bbox invalide');
             setFaceBox(null);
           }
         } else {
+          const errorText = await faceRes.text().catch(() => 'Erreur inconnue');
+          console.error('❌ Erreur analyse visage:', faceRes.status, errorText);
           setFaceBox(null);
         }
-      } catch {
-        // En cas d'erreur, ne pas casser la surveillance, juste supprimer le cadre
+      } catch (error) {
+        console.error('❌ Exception lors de l\'analyse du visage:', error);
         setFaceBox(null);
       }
     } catch (error) {
@@ -862,17 +972,47 @@ export default function Surveillance(): JSX.Element {
                 <div
                   style={{
                     position: 'absolute',
-                    border: '3px solid #eab308',
-                    boxShadow: '0 0 0 2px rgba(250,204,21,0.45)',
-                    borderRadius: '10px',
+                    border: '4px solid #eab308',
+                    boxShadow: '0 0 0 2px rgba(250,204,21,0.6), 0 0 30px rgba(250,204,21,0.4)',
+                    borderRadius: '12px',
                     left: `${faceBox.x}px`,
                     top: `${faceBox.y}px`,
                     width: `${faceBox.width}px`,
                     height: `${faceBox.height}px`,
                     pointerEvents: 'none',
-                    transition: 'all 120ms ease-out',
+                    transition: 'all 150ms ease-out',
+                    zIndex: 10,
+                    animation: 'pulse 2s ease-in-out infinite',
                   }}
-                />
+                >
+                  {/* Indicateur visuel aux coins */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      left: '-6px',
+                      width: '20px',
+                      height: '20px',
+                      background: '#eab308',
+                      borderRadius: '50%',
+                      border: '3px solid #111827',
+                      boxShadow: '0 0 10px rgba(250,204,21,0.8)',
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      right: '-6px',
+                      width: '20px',
+                      height: '20px',
+                      background: '#eab308',
+                      borderRadius: '50%',
+                      border: '3px solid #111827',
+                      boxShadow: '0 0 10px rgba(250,204,21,0.8)',
+                    }}
+                  />
+                </div>
               )}
               {!running && (
                 <div className="absolute inset-0 bg-gray-900/80 flex items-center justify-center">

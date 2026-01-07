@@ -302,25 +302,37 @@ ipcMain.handle('log-security-alert', async (_event: any, alertData: any) => {
 let monitorInterval: NodeJS.Timeout | null = null;
 let lastLockConfig: any = {
   allowed_apps: ["code.exe","excel.exe","python.exe"],
-  forbidden_apps: ["discord.exe","whatsapp.exe","teams.exe","chrome.exe"],
+  forbidden_apps: ["discord.exe","whatsapp.exe","teams.exe","chrome.exe","cursor.exe","msedge.exe","firefox.exe","opera.exe"],
   policy: { auto_kill: false, repeat_threshold: 2 }
 };
 
 async function fetchLockConfig() {
   try {
-    // Récupérer la config de base
+    // Récupérer la config de base (sans authentification requise)
     const res = await fetch('http://localhost:8000/api/v1/config/lock');
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.log('[Monitor] Config non disponible, utilisation de la config par défaut');
+      return null;
+    }
     const json = await res.json();
     
-    // Récupérer l'examen actif depuis sessionStorage (via IPC depuis le renderer)
-    // Pour l'instant, on utilise la config par défaut mais on pourrait améliorer cela
-    // en récupérant les applications autorisées depuis l'examen
+    // Merger avec la config par défaut pour s'assurer que forbidden_apps est toujours défini
+    const mergedConfig = {
+      ...lastLockConfig,
+      ...json,
+      forbidden_apps: json.forbidden_apps || lastLockConfig.forbidden_apps,
+      allowed_apps: json.allowed_apps || lastLockConfig.allowed_apps,
+      policy: json.policy || lastLockConfig.policy
+    };
     
-    lastLockConfig = json || lastLockConfig;
-    return json;
+    lastLockConfig = mergedConfig;
+    console.log('[Monitor] Config chargée:', { 
+      forbidden_apps: mergedConfig.forbidden_apps?.length || 0,
+      allowed_apps: mergedConfig.allowed_apps?.length || 0
+    });
+    return mergedConfig;
   } catch (e) {
-    console.error('Erreur fetch lock config:', e);
+    console.error('[Monitor] Erreur fetch lock config:', e);
     return null;
   }
 }
@@ -393,17 +405,70 @@ async function listProcessNamesSet(): Promise<Set<string>> {
   return set;
 }
 
-async function sendAlert(alert: any) {
+async function sendAlert(alert: any, mainWindow?: Electron.BrowserWindow | null) {
   try {
-    await fetch('http://localhost:8000/api/v1/alerts', {
+    // Récupérer session_id, exam_id, student_id et token depuis le renderer
+    let sessionId: number | null = null;
+    let examId: number | null = null;
+    let studentId: number | null = null;
+    let token: string | null = null;
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        const [sessionIdStr, examIdStr, studentIdStr, tokenStr] = await Promise.all([
+          mainWindow.webContents.executeJavaScript('sessionStorage.getItem("pf_session_id")').catch(() => null),
+          mainWindow.webContents.executeJavaScript('sessionStorage.getItem("pf_exam_id")').catch(() => null),
+          mainWindow.webContents.executeJavaScript('sessionStorage.getItem("pf_student_id") || localStorage.getItem("pf_student_id")').catch(() => null),
+          mainWindow.webContents.executeJavaScript('localStorage.getItem("pf_token") || localStorage.getItem("auth_token")').catch(() => null)
+        ]);
+        
+        if (sessionIdStr) sessionId = parseInt(sessionIdStr);
+        if (examIdStr) examId = parseInt(examIdStr);
+        if (studentIdStr) studentId = parseInt(studentIdStr);
+        if (tokenStr) token = tokenStr;
+      } catch (e) {
+        console.log('Erreur récupération contexte:', e);
+      }
+    }
+    
+    // Construire la description complète
+    let description = alert.description || `Application interdite détectée`;
+    if (alert.process) {
+      description = `🚫 Application interdite détectée: ${alert.process}`;
+    }
+    
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch('http://localhost:8000/api/v1/alerts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
-        ...alert,
-        timestamp: new Date().toISOString(),
-        student: studentIdentity || undefined
+        type: alert.type || 'forbidden_app',
+        severity: alert.severity || 'high',
+        description: description,
+        session_id: sessionId || alert.session_id || null,
+        exam_id: examId || alert.exam_id || null,
+        student_id: studentId || alert.student_id || null,
+        process: alert.process || null
       })
     });
+    
+    if (response.ok) {
+      const result = await response.json();
+      console.log('[Monitor] ✅ Alerte envoyée avec succès:', { 
+        type: alert.type, 
+        process: alert.process, 
+        sessionId, 
+        examId,
+        alertId: result.id 
+      });
+    } else {
+      const errorText = await response.text();
+      console.error('[Monitor] ❌ Erreur envoi alerte:', response.status, errorText);
+    }
   } catch (e) {
     console.error('Erreur envoi alerte:', e);
   }
@@ -437,17 +502,25 @@ async function tickProcessMonitor(mainWindow: Electron.BrowserWindow | null) {
         const examId = parseInt(examIdStr);
         if (!isNaN(examId)) {
           allowedApps = await fetchExamAllowedApps(examId, token || undefined);
+          console.log('[Monitor] Examen actif trouvé:', examId, 'Apps autorisées:', allowedApps?.length || 0);
         }
+      } else {
+        console.log('[Monitor] Aucun examen actif - utilisation de la liste noire par défaut');
       }
     }
   } catch (e) {
-    console.log('Impossible de récupérer l\'examen actif:', e);
+    console.log('[Monitor] Impossible de récupérer l\'examen actif:', e);
   }
   
   // Si on a une liste d'applications autorisées, bloquer tout le reste
   // Sinon, utiliser la liste des applications interdites
   const procSet = await listProcessNamesSet();
-  if (!procSet.size) return;
+  if (!procSet.size) {
+    console.log('[Monitor] Aucun processus détecté');
+    return;
+  }
+  
+  console.log('[Monitor] Surveillance active -', procSet.size, 'processus détectés');
   
   if (allowedApps && allowedApps.length > 0) {
     // Mode liste blanche : bloquer tout sauf les applications autorisées
@@ -466,7 +539,7 @@ async function tickProcessMonitor(mainWindow: Electron.BrowserWindow | null) {
       
       if (!isAllowed) {
         console.log('[Monitor] Application non autorisée détectée:', procName);
-        await sendAlert({ type: 'forbidden_app', process: procName });
+        await sendAlert({ type: 'forbidden_app', process: procName, severity: 'high' }, mainWindow);
         const now = Date.now();
         if (!lastNotifyAt[procName] || now - lastNotifyAt[procName] > 10000) {
           lastNotifyAt[procName] = now;
@@ -494,22 +567,42 @@ async function tickProcessMonitor(mainWindow: Electron.BrowserWindow | null) {
     const autoKill: boolean = !!(effective.policy && effective.policy.auto_kill);
     const repeatThreshold: number = Math.max(1, Number(effective.policy?.repeat_threshold || 2));
 
+    // Log pour debug
+    if (procSet.size > 0) {
+      const sampleProcesses = Array.from(procSet).slice(0, 10);
+      console.log('[Monitor] Processus détectés (échantillon):', sampleProcesses);
+      console.log('[Monitor] Liste interdite:', forbidden);
+    }
+
     for (const forb of forbidden) {
-      if (forb && procSet.has(forb)) {
-        console.log('[Monitor] Application interdite détectée:', forb);
-        await sendAlert({ type: 'forbidden_app', process: forb });
+      // Vérifier avec et sans .exe
+      const forbWithExe = forb.endsWith('.exe') ? forb : `${forb}.exe`;
+      const forbWithoutExe = forb.endsWith('.exe') ? forb.replace('.exe', '') : forb;
+      
+      // Vérifier les deux variantes
+      const isForbidden = procSet.has(forb) || procSet.has(forbWithExe) || procSet.has(forbWithoutExe);
+      
+      if (isForbidden) {
+        // Trouver le nom exact du processus détecté
+        const detectedName = Array.from(procSet).find(p => 
+          p === forb || p === forbWithExe || p === forbWithoutExe ||
+          p.includes(forbWithoutExe) || forbWithoutExe.includes(p.replace('.exe', ''))
+        ) || forb;
+        
+        console.log('[Monitor] 🚫 Application interdite détectée:', detectedName, '(recherché:', forb, ')');
+        await sendAlert({ type: 'forbidden_app', process: detectedName, severity: 'high' }, mainWindow);
         const now = Date.now();
-        if (!lastNotifyAt[forb] || now - lastNotifyAt[forb] > 10000) {
-          lastNotifyAt[forb] = now;
+        if (!lastNotifyAt[detectedName] || now - lastNotifyAt[detectedName] > 10000) {
+          lastNotifyAt[detectedName] = now;
           if (mainWindow) {
-            mainWindow.webContents.send('student-warning', { app: forb, message: `⚠️ L'application "${forb}" est interdite pendant l'examen.` });
+            mainWindow.webContents.send('student-warning', { app: detectedName, message: `⚠️ L'application "${detectedName}" est interdite pendant l'examen.` });
           }
         }
         if (autoKill && process.platform === 'win32') {
-          forbiddenCounters[forb] = (forbiddenCounters[forb] || 0) + 1;
-          if (forbiddenCounters[forb] >= repeatThreshold) {
-            await killProcessWindows(forb);
-            forbiddenCounters[forb] = 0;
+          forbiddenCounters[detectedName] = (forbiddenCounters[detectedName] || 0) + 1;
+          if (forbiddenCounters[detectedName] >= repeatThreshold) {
+            await killProcessWindows(detectedName);
+            forbiddenCounters[detectedName] = 0;
           }
         }
       }

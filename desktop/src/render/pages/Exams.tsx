@@ -123,9 +123,14 @@ export default function Exams(): JSX.Element {
     setShowExamViewer(true);
     // Auto-start surveillance: navigate to surveillance and start camera
     try {
-      // stocker un flag pour demander démarrage auto
+      // Stocker les IDs nécessaires pour la surveillance
       sessionStorage.setItem('pf_autostart_surv', '1');
-    } catch {}
+      sessionStorage.setItem('pf_exam_id', exam.id.toString());
+      sessionStorage.setItem('pf_student_id', studentId.toString());
+      console.log('📝 IDs stockés pour surveillance:', { examId: exam.id, studentId });
+    } catch (err) {
+      console.error('Erreur stockage IDs:', err);
+    }
     navigate('/surveillance');
   }
 

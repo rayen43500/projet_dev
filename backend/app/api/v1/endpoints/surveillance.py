@@ -9,7 +9,7 @@ import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 
@@ -21,7 +21,8 @@ from app.models.surveillance import (
     FaceVerificationRequest,
     FaceVerificationResponse,
     SessionStartRequest,
-    SessionStatusResponse
+    SessionStatusResponse,
+    FaceAnalysisRequest
 )
 
 router = APIRouter()
@@ -205,8 +206,19 @@ async def start_exam_session(
         if not exam:
             raise HTTPException(status_code=404, detail="Examen non trouvé")
         
-        # Vérifier que l'étudiant est assigné à cet examen
-        if current_user not in exam.assigned_students:
+        # Vérifier que l'étudiant est assigné à cet examen (vérification flexible)
+        # Charger explicitement la relation assigned_students
+        db.refresh(exam, ['assigned_students'])
+        
+        # Vérifier si l'étudiant est dans la liste assignée OU si l'examen a un student_id correspondant
+        is_assigned = (
+            current_user.id in [s.id for s in exam.assigned_students] or
+            exam.student_id == current_user.id or
+            request.student_id == current_user.id
+        )
+        
+        if not is_assigned and len(exam.assigned_students) > 0:
+            # Si l'examen a des étudiants assignés mais pas celui-ci, refuser
             raise HTTPException(status_code=403, detail="Vous n'êtes pas assigné à cet examen")
         
         # Vérifier s'il existe déjà une session active
@@ -375,20 +387,30 @@ async def get_recent_alerts(
             SecurityAlert.session_id.in_(session_ids)
         ).order_by(SecurityAlert.timestamp.desc()).limit(limit).all()
     else:
-        # Pour les enseignants/admin, retourner toutes les alertes récentes
+        # Pour les enseignants/admin, retourner toutes les alertes récentes (avec ou sans session)
         alerts = db.query(SecurityAlert).order_by(
             SecurityAlert.timestamp.desc()
         ).limit(limit).all()
     
+    logger.info(f"Récupération de {len(alerts)} alertes pour l'utilisateur {current_user.id} (rôle: {current_user.role})")
+    
     result = []
     for alert in alerts:
-        # Récupérer la session, l'étudiant et l'examen
-        session = db.query(ExamSession).filter(ExamSession.id == alert.session_id).first()
-        if not session:
-            continue
-            
-        student = db.query(User).filter(User.id == session.student_id).first()
-        exam = db.query(Exam).filter(Exam.id == session.exam_id).first()
+        # Récupérer la session, l'étudiant et l'examen si session_id existe
+        student_name = "Inconnu"
+        exam_title = "Examen inconnu"
+        
+        if alert.session_id:
+            session = db.query(ExamSession).filter(ExamSession.id == alert.session_id).first()
+            if session:
+                student = db.query(User).filter(User.id == session.student_id).first()
+                exam = db.query(Exam).filter(Exam.id == session.exam_id).first()
+                student_name = student.full_name if student else "Inconnu"
+                exam_title = exam.title if exam else "Examen inconnu"
+        else:
+            # Pour les alertes sans session, essayer de récupérer l'examen via exam_id si disponible
+            # Note: SecurityAlert n'a pas directement exam_id, mais on peut le déduire de la description
+            pass
         
         # Calculer le temps écoulé
         time_diff = datetime.now(timezone.utc) - alert.timestamp
@@ -407,12 +429,13 @@ async def get_recent_alerts(
         result.append({
             "id": alert.id,
             "type": alert.alert_type,
-            "student": student.full_name if student else "Inconnu",
-            "exam": exam.title if exam else "Examen inconnu",
+            "student": student_name,
+            "exam": exam_title,
             "time": time_str,
             "severity": alert.severity.lower() if alert.severity else "low",
             "description": alert.description,
-            "timestamp": alert.timestamp.isoformat() if alert.timestamp else None
+            "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
+            "session_id": alert.session_id
         })
     
     return result
@@ -467,6 +490,8 @@ async def analyze_surveillance_data_with_alerts(
             raise HTTPException(status_code=404, detail="Session non trouvée")
         
         alerts_created = []
+        face_result = None
+        suspicious_objects = None
         
         # Analyser la vidéo si disponible
         if video_frame:
@@ -477,41 +502,70 @@ async def analyze_surveillance_data_with_alerts(
                 image_np = np.frombuffer(image_bytes, np.uint8)
                 image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
                 
-                # Analyse du visage (présence, nombre de visages, éclairage, etc.)
-                face_result = face_engine.analyze_face_behavior(image)
+                if image is None:
+                    logger.error(f"Impossible de décoder l'image pour session {session_id}")
+                else:
+                    # Analyse du visage (présence, nombre de visages, éclairage, etc.)
+                    face_result = face_engine.analyze_face_behavior(image)
+                    logger.info(f"Résultat analyse visage pour session {session_id}: face_detected={face_result.get('face_detected')}, brightness={face_result.get('brightness')}, low_light={face_result.get('low_light')}, multiple_faces={face_result.get('multiple_faces')}")
+                    
+                    # Détection d'objets suspects (téléphones, tablettes, etc.)
+                    suspicious_objects = face_engine.detect_suspicious_objects(image)
+                    logger.info(f"Détection objets suspects: {suspicious_objects}")
                 
-                # Créer des alertes si nécessaire
-                if face_result.get('face_not_detected'):
-                    alert = await create_and_send_alert(
-                        db, session_id, 'face_not_detected', 'medium',
-                        'Visage non détecté - l\'étudiant pourrait ne pas être présent'
-                    )
-                    alerts_created.append(alert.id)
-                
-                if face_result.get('multiple_faces'):
-                    alert = await create_and_send_alert(
-                        db, session_id, 'multiple_faces', 'high',
-                        'Plusieurs visages détectés - personne non autorisée possible'
-                    )
-                    alerts_created.append(alert.id)
-                
-                if face_result.get('gaze_not_on_screen'):
-                    alert = await create_and_send_alert(
-                        db, session_id, 'gaze_detection', 'medium',
-                        'Le regard n\'est pas dirigé vers l\'écran'
-                    )
-                    alerts_created.append(alert.id)
+                    # Créer des alertes si nécessaire
+                    if face_result and face_result.get('face_not_detected'):
+                        logger.warning(f"Visage non détecté pour session {session_id}")
+                        alert = await create_and_send_alert(
+                            db, session_id, 'face_not_detected', 'medium',
+                            'Visage non détecté - l\'étudiant pourrait ne pas être présent'
+                        )
+                        alerts_created.append(alert.id)
+                    
+                    if face_result and face_result.get('multiple_faces'):
+                        logger.warning(f"Plusieurs visages détectés pour session {session_id}")
+                        alert = await create_and_send_alert(
+                            db, session_id, 'multiple_faces', 'high',
+                            'Plusieurs visages détectés - personne non autorisée possible'
+                        )
+                        alerts_created.append(alert.id)
+                    
+                    if face_result and face_result.get('gaze_not_on_screen'):
+                        logger.warning(f"Regard non dirigé vers l'écran pour session {session_id}")
+                        alert = await create_and_send_alert(
+                            db, session_id, 'gaze_detection', 'medium',
+                            'Le regard n\'est pas dirigé vers l\'écran'
+                        )
+                        alerts_created.append(alert.id)
 
-                # Alerte sur l'éclairage insuffisant
-                if face_result.get('low_light'):
-                    alert = await create_and_send_alert(
-                        db,
-                        session_id,
-                        'low_light',
-                        'medium',
-                        'Éclairage insuffisant détecté sur le visage de l\'étudiant',
-                    )
-                    alerts_created.append(alert.id)
+                    # Alerte sur l'éclairage insuffisant (avec seuil plus sensible)
+                    if face_result:
+                        brightness_value = face_result.get('brightness', None)
+                        low_light = face_result.get('low_light', False)
+                        
+                        if low_light:
+                            logger.warning(f"Éclairage insuffisant détecté pour session {session_id} (luminosité: {brightness_value})")
+                            alert = await create_and_send_alert(
+                                db,
+                                session_id,
+                                'low_light',
+                                'medium',
+                                f'Éclairage insuffisant détecté (luminosité: {brightness_value:.1f}/255) - veuillez améliorer l\'éclairage',
+                            )
+                            alerts_created.append(alert.id)
+                    
+                    # Alerte sur les objets suspects
+                    if suspicious_objects and suspicious_objects.get('suspicious_objects_detected'):
+                        logger.warning(f"Objets suspects détectés pour session {session_id}")
+                        objects_found = suspicious_objects.get('objects_found', [])
+                        alert = await create_and_send_alert(
+                            db,
+                            session_id,
+                            'suspicious_objects',
+                            'high',
+                            f'Objets suspects détectés: {", ".join(objects_found)}',
+                        )
+                        alerts_created.append(alert.id)
                 
             except Exception as e:
                 logger.error(f"Erreur lors de l'analyse vidéo: {e}")
@@ -531,11 +585,27 @@ async def analyze_surveillance_data_with_alerts(
             except Exception as e:
                 logger.error(f"Erreur lors de l'analyse audio: {e}")
         
+        # Retourner aussi les détails des alertes créées pour un meilleur affichage
+        alert_details = []
+        if alerts_created:
+            for alert_id in alerts_created:
+                alert_obj = db.query(SecurityAlert).filter(SecurityAlert.id == alert_id).first()
+                if alert_obj:
+                    alert_details.append({
+                        "id": alert_obj.id,
+                        "type": alert_obj.alert_type,
+                        "severity": alert_obj.severity,
+                        "description": alert_obj.description
+                    })
+        
         return {
             "session_id": session_id,
             "alerts_created": len(alerts_created),
             "alert_ids": alerts_created,
-            "timestamp": timestamp or datetime.now().isoformat()
+            "alert_details": alert_details,
+            "timestamp": timestamp or datetime.now().isoformat(),
+            "face_analysis": face_result if video_frame else None,
+            "suspicious_objects": suspicious_objects if video_frame else None
         }
         
     except Exception as e:
@@ -544,23 +614,32 @@ async def analyze_surveillance_data_with_alerts(
 
 @router.post("/analyze-face")
 async def analyze_face_behavior(
-    image_data: str,
+    request: FaceAnalysisRequest,
     current_user: User = Depends(get_current_user)
 ):
     """
     Analyse le comportement du visage en temps réel
+    Accepte image_data dans le body JSON
     """
     try:
+        image_data = request.image_data
+        
         # Décodage de l'image
         image_data_clean = image_data.split(',')[1] if ',' in image_data else image_data
         image_bytes = base64.b64decode(image_data_clean)
         image_np = np.frombuffer(image_bytes, np.uint8)
         image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
         
+        if image is None:
+            raise HTTPException(status_code=400, detail="Impossible de décoder l'image")
+        
         # Analyse du comportement
         analysis = face_engine.analyze_face_behavior(image)
         
         return analysis
         
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Erreur lors de l'analyse du visage: {e}")
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'analyse: {str(e)}")

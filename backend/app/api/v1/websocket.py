@@ -106,18 +106,13 @@ async def send_alert_to_connections(alert: SecurityAlert, db: Session):
     """
     Envoie une alerte à tous les WebSockets concernés
     """
-    # Récupérer la session et l'examen
-    session = db.query(ExamSession).filter(ExamSession.id == alert.session_id).first()
-    if not session:
-        return
-    
     # Préparer le message
     message = {
         "type": "alert",
         "alert": {
             "id": alert.id,
             "session_id": alert.session_id,
-            "exam_id": session.exam_id,
+            "exam_id": None,
             "alert_type": alert.alert_type,
             "severity": alert.severity,
             "description": alert.description,
@@ -126,17 +121,24 @@ async def send_alert_to_connections(alert: SecurityAlert, db: Session):
         }
     }
     
-    # Envoyer à tous ceux qui suivent cette session
-    await manager.send_to_session(message, alert.session_id)
-    
-    # Envoyer à tous ceux qui suivent cet examen (admin/instructeur)
-    await manager.send_to_exam(message, session.exam_id)
-    
-    # Envoyer à l'étudiant concerné
-    await manager.send_personal_message(message, session.student_id)
+    # Récupérer la session et l'examen si session_id existe
+    session = None
+    if alert.session_id:
+        session = db.query(ExamSession).filter(ExamSession.id == alert.session_id).first()
+        if session:
+            message["alert"]["exam_id"] = session.exam_id
+            
+            # Envoyer à tous ceux qui suivent cette session
+            await manager.send_to_session(message, alert.session_id)
+            
+            # Envoyer à tous ceux qui suivent cet examen (admin/instructeur)
+            await manager.send_to_exam(message, session.exam_id)
+            
+            # Envoyer à l'étudiant concerné
+            await manager.send_personal_message(message, session.student_id)
     
     # Envoyer à TOUS les admins/instructeurs connectés (pour le dashboard)
-    # Récupérer tous les utilisateurs admin/instructeur
+    # Même si pas de session, les admins doivent voir toutes les alertes
     admin_users = db.query(User).filter(User.role.in_(["admin", "instructor"])).all()
     for admin_user in admin_users:
         await manager.send_personal_message(message, admin_user.id)

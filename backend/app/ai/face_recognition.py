@@ -177,8 +177,9 @@ class FaceRecognitionEngine:
             # Calcul de la luminosité globale pour détecter un éclairage insuffisant
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             brightness = float(np.mean(gray))
-            # Seuil empirique : en dessous de ~60, on considère que la lumière est faible
-            low_light = brightness < 60.0
+            # Seuil empirique amélioré : en dessous de ~100, on considère que la lumière est faible
+            # (augmenté pour être plus sensible et détecter plus facilement)
+            low_light = brightness < 100.0
 
             if not faces:
                 # Aucun visage détecté -> signaler explicitement pour le backend de surveillance
@@ -191,6 +192,7 @@ class FaceRecognitionEngine:
                     'face_not_detected': True,
                     'gaze_not_on_screen': False,
                     'low_light': low_light,
+                    'brightness': brightness,  # Ajouter la valeur de luminosité même sans visage
                 }
 
             # Vérification de la présence de plusieurs visages
@@ -215,6 +217,7 @@ class FaceRecognitionEngine:
                 'face_not_detected': False,
                 'gaze_not_on_screen': False,
                 'low_light': low_light,
+                'brightness': brightness,  # Ajouter la valeur de luminosité pour le débogage
             }
 
         except Exception as e:
@@ -240,13 +243,76 @@ class FaceRecognitionEngine:
         Returns:
             Résultats de la détection d'objets
         """
-        # TODO: Implémenter la détection d'objets avec YOLO ou autre modèle
-        # Pour l'instant, retourne un résultat de base
-        return {
-            'suspicious_objects_detected': False,
-            'objects_found': [],
-            'confidence': 0.0
-        }
+        try:
+            # Conversion en niveaux de gris
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            
+            # Détection des contours pour trouver des objets rectangulaires (téléphones, tablettes)
+            # Appliquer un flou pour réduire le bruit
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            
+            # Détection des bords avec Canny
+            edges = cv2.Canny(blurred, 50, 150)
+            
+            # Trouver les contours
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            suspicious_objects = []
+            
+            # Analyser chaque contour pour détecter des formes rectangulaires (téléphones/tablettes)
+            for contour in contours:
+                # Calculer l'aire du contour
+                area = cv2.contourArea(contour)
+                
+                # Ignorer les petits contours (bruit)
+                if area < 500:
+                    continue
+                
+                # Approximer le contour pour obtenir une forme plus simple
+                epsilon = 0.02 * cv2.arcLength(contour, True)
+                approx = cv2.approxPolyDP(contour, epsilon, True)
+                
+                # Vérifier si c'est un rectangle (4 coins)
+                if len(approx) == 4:
+                    # Calculer le ratio largeur/hauteur
+                    x, y, w, h = cv2.boundingRect(approx)
+                    aspect_ratio = float(w) / h if h > 0 else 0
+                    
+                    # Les téléphones/tablettes ont généralement un ratio entre 0.5 et 2.0
+                    # et une taille raisonnable
+                    if 0.3 < aspect_ratio < 3.0 and 500 < area < (image.shape[0] * image.shape[1] * 0.3):
+                        # Vérifier si l'objet est dans la zone du visage (suspect)
+                        # Pour l'instant, on considère tous les rectangles comme suspects
+                        suspicious_objects.append({
+                            'type': 'rectangular_object',
+                            'area': area,
+                            'aspect_ratio': aspect_ratio,
+                            'bbox': (x, y, w, h)
+                        })
+            
+            # Si on trouve plusieurs objets rectangulaires, c'est suspect
+            if len(suspicious_objects) > 0:
+                return {
+                    'suspicious_objects_detected': True,
+                    'objects_found': [obj['type'] for obj in suspicious_objects],
+                    'confidence': min(0.8, len(suspicious_objects) * 0.3),
+                    'details': suspicious_objects
+                }
+            
+            return {
+                'suspicious_objects_detected': False,
+                'objects_found': [],
+                'confidence': 0.0
+            }
+            
+        except Exception as e:
+            print(f"Erreur lors de la détection d'objets: {e}")
+            return {
+                'suspicious_objects_detected': False,
+                'objects_found': [],
+                'confidence': 0.0,
+                'error': str(e)
+            }
     
     def cleanup(self):
         """Libère les ressources"""
