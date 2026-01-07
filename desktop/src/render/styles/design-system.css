@@ -53,11 +53,11 @@
   --gray-800: #1e293b;
   --gray-900: #0f172a;
 
-  /* Backgrounds */
+  /* Backgrounds - Thème clair par défaut */
   --bg-primary: #ffffff;
   --bg-secondary: #f8fafc;
   --bg-tertiary: #f1f5f9;
-  --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --bg-gradient: linear-gradient(135deg, #e0f2fe 0%, #e5e7eb 100%);
   --bg-gradient-light: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
 
   /* Shadows */
@@ -115,13 +115,13 @@
   --z-toast: 1080;
 }
 
-/* Reset et Base */
+/* -------------------------------
+   Reset & base (partagé)
+   ------------------------------- */
 *,
 *::before,
 *::after {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 html {
@@ -142,6 +142,45 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* -------------------------------
+   Thème sombre (Electron desktop)
+   ------------------------------- */
+:root.theme-dark {
+  /* Arrière-plans sombres inspirés de Fluent / Material */
+  --bg-primary: #020617;
+  --bg-secondary: #020617;
+  --bg-tertiary: #0b1120;
+  --bg-gradient: radial-gradient(circle at top left, #1e293b 0%, #020617 55%, #000000 100%);
+  --bg-gradient-light: linear-gradient(135deg, #020617 0%, #020617 100%);
+
+  /* Texte inversé */
+  --gray-50: #f9fafb;
+  --gray-100: #e5e7eb;
+  --gray-200: #d1d5db;
+  --gray-300: #9ca3af;
+  --gray-400: #6b7280;
+  --gray-500: #4b5563;
+  --gray-600: #374151;
+  --gray-700: #1f2933;
+  --gray-800: #111827;
+  --gray-900: #f9fafb;
+
+  /* Légers ajustements de statut pour le contraste */
+  --primary-500: #60a5fa;
+  --primary-600: #3b82f6;
+  --primary-700: #2563eb;
+
+  --success-500: #22c55e;
+  --warning-500: #fbbf24;
+  --danger-500: #f97373;
+  --info-500: #22d3ee;
+}
+
+body.theme-dark {
+  background: var(--bg-gradient);
+  color: var(--gray-100);
 }
 
 /* Typography System */

@@ -477,7 +477,7 @@ async def analyze_surveillance_data_with_alerts(
                 image_np = np.frombuffer(image_bytes, np.uint8)
                 image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
                 
-                # Analyse du visage
+                # Analyse du visage (présence, nombre de visages, éclairage, etc.)
                 face_result = face_engine.analyze_face_behavior(image)
                 
                 # Créer des alertes si nécessaire
@@ -499,6 +499,17 @@ async def analyze_surveillance_data_with_alerts(
                     alert = await create_and_send_alert(
                         db, session_id, 'gaze_detection', 'medium',
                         'Le regard n\'est pas dirigé vers l\'écran'
+                    )
+                    alerts_created.append(alert.id)
+
+                # Alerte sur l'éclairage insuffisant
+                if face_result.get('low_light'):
+                    alert = await create_and_send_alert(
+                        db,
+                        session_id,
+                        'low_light',
+                        'medium',
+                        'Éclairage insuffisant détecté sur le visage de l\'étudiant',
                     )
                     alerts_created.append(alert.id)
                 

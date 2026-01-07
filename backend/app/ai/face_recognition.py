@@ -173,37 +173,57 @@ class FaceRecognitionEngine:
         try:
             # Détection des visages
             faces = self.detect_faces(image)
-            
+
+            # Calcul de la luminosité globale pour détecter un éclairage insuffisant
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            brightness = float(np.mean(gray))
+            # Seuil empirique : en dessous de ~60, on considère que la lumière est faible
+            low_light = brightness < 60.0
+
             if not faces:
+                # Aucun visage détecté -> signaler explicitement pour le backend de surveillance
                 return {
                     'face_detected': False,
                     'multiple_faces': False,
                     'face_visible': False,
-                    'confidence': 0.0
+                    'confidence': 0.0,
+                    'face_count': 0,
+                    'face_not_detected': True,
+                    'gaze_not_on_screen': False,
+                    'low_light': low_light,
                 }
-            
+
             # Vérification de la présence de plusieurs visages
             multiple_faces = len(faces) > 1
-            
+
             # Analyse de la visibilité du visage principal
             main_face = faces[0]
             face_visible = main_face['confidence'] >= self.face_detection_confidence
-            
+
+            # Pour l'instant, nous n'analysons pas finement la direction du regard ici.
+            # On laisse gaze_not_on_screen à False par défaut.
             return {
                 'face_detected': True,
                 'multiple_faces': multiple_faces,
                 'face_visible': face_visible,
-                'confidence': main_face['confidence'],
-                'face_count': len(faces)
+                'confidence': float(main_face['confidence']),
+                'face_count': len(faces),
+                'face_not_detected': False,
+                'gaze_not_on_screen': False,
+                'low_light': low_light,
             }
-            
+
         except Exception as e:
             return {
                 'face_detected': False,
                 'multiple_faces': False,
                 'face_visible': False,
                 'confidence': 0.0,
-                'error': str(e)
+                'face_count': 0,
+                'face_not_detected': True,
+                'gaze_not_on_screen': False,
+                'low_light': False,
+                'error': str(e),
             }
     
     def detect_suspicious_objects(self, image: np.ndarray) -> dict:

@@ -12,7 +12,9 @@ import {
   Eye,
   Minus,
   Maximize2,
-  X
+  X,
+  SunMedium,
+  Moon
 } from 'lucide-react';
 import Button from '../ui/Button';
 
@@ -67,6 +69,16 @@ export default function AppLayout({
   const location = useLocation();
   const [notifications] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window === 'undefined') return 'light';
+    const stored = localStorage.getItem('pf_desktop_theme');
+    if (stored === 'dark' || stored === 'light') return stored;
+    // Préférences système
+    return window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
+  });
 
   // Fonctions de contrôle de fenêtre
   const handleCloseWindow = () => {
@@ -91,6 +103,21 @@ export default function AppLayout({
 
   // Activer les raccourcis clavier
   useKeyboardShortcuts();
+
+  // Appliquer la classe de thème sur le document (Electron compatible)
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('theme-dark');
+    } else {
+      root.classList.remove('theme-dark');
+    }
+    localStorage.setItem('pf_desktop_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  };
 
   // Écouter les événements du menu principal
   useEffect(() => {
@@ -156,17 +183,17 @@ export default function AppLayout({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative">
+    <div className="min-h-screen bg-[var(--bg-gradient)] relative transition-smooth">
       {/* En-tête unifié */}
-      <div className="fixed top-0 left-0 right-0 z-[1000] bg-white/95 backdrop-blur-sm border-b border-gray-200 shadow-sm">
+      <div className="fixed top-0 left-0 right-0 z-[1000] bg-[color:rgba(15,23,42,0.92)] theme-dark:bg-[color:rgba(15,23,42,0.96)] bg-white/95 backdrop-blur-sm border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-2 sm:px-4">
           <div className="flex items-center justify-between gap-3 py-2" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
             {/* Logo + Titre */}
             <div className="flex items-center gap-3 min-w-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded flex items-center justify-center">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded flex items-center justify-center shadow-sm">
                 <BookOpen className="w-5 h-5 text-white" />
               </div>
-              <span className="text-sm sm:text-base font-medium text-gray-800 truncate">
+              <span className="text-sm sm:text-base font-medium text-gray-100 truncate">
                 <span className="hidden sm:inline">ProctoFlex AI</span>
               </span>
             </div>
@@ -190,7 +217,7 @@ export default function AppLayout({
                       className={`relative shrink-0 flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-full transition-all duration-300 hover:scale-105 whitespace-nowrap ${
                         item.current
                           ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md shadow-blue-500/20'
-                          : 'bg-white/90 text-gray-700 hover:bg-blue-50 border border-gray-200/70 hover:border-blue-300 hover:shadow'
+                          : 'bg-white/90 text-gray-700 hover:bg-blue-50 border border-gray-200/70 hover:border-blue-300 hover:shadow theme-dark:bg-slate-800 theme-dark:text-slate-100 theme-dark:border-slate-600 theme-dark:hover:bg-slate-700'
                       }`}
                       style={{ WebkitAppRegion: 'no-drag', pointerEvents: 'auto', cursor: 'pointer' } as React.CSSProperties}
                       data-tab-id={item.id}
@@ -217,16 +244,29 @@ export default function AppLayout({
                   placeholder="Rechercher..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200/60 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 bg-white/80 shadow-sm hover:shadow-md transition-all duration-300"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200/60 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 bg-white/80 shadow-sm hover:shadow-md transition-all duration-300 theme-dark:bg-slate-800 theme-dark:border-slate-600 theme-dark:text-slate-100"
                 />
               </div>
             </div>
             
             {/* Utilisateur + Notifications + Fenêtre */}
             <div className="flex items-center gap-2 sm:gap-3" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+              {/* Thème clair / sombre */}
+              <button
+                onClick={toggleTheme}
+                className="relative p-2 text-gray-200 hover:text-white transition-colors duration-200 rounded-lg hover:bg-white/10"
+                title={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
+              >
+                {theme === 'dark' ? (
+                  <SunMedium className="w-4 h-4" />
+                ) : (
+                  <Moon className="w-4 h-4" />
+                )}
+              </button>
+
               {/* Notifications */}
               <button 
-                className="relative p-2 text-gray-500 hover:text-gray-700 transition-colors duration-200 rounded-lg hover:bg-gray-100"
+                className="relative p-2 text-gray-300 hover:text-white transition-colors duration-200 rounded-lg hover:bg-white/10"
                 title={`${notifications} notifications`}
               >
                 <Bell className="w-4 h-4" />
@@ -244,21 +284,21 @@ export default function AppLayout({
               <div className="flex items-center gap-2 ml-2">
                 <button
                   onClick={handleMinimizeWindow}
-                  className="w-9 h-9 flex items-center justify-center text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-all duration-200 hover:scale-105"
+                  className="w-9 h-9 flex items-center justify-center text-gray-200 hover:text-white hover:bg-white/10 rounded-lg transition-all duration-200 hover:scale-105"
                   title="Réduire la fenêtre"
                 >
                   <Minus className="w-4 h-4" />
                 </button>
                 <button
                   onClick={handleMaximizeWindow}
-                  className="w-9 h-9 flex items-center justify-center text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-all duration-200 hover:scale-105"
+                  className="w-9 h-9 flex items-center justify-center text-gray-200 hover:text-white hover:bg-white/10 rounded-lg transition-all duration-200 hover:scale-105"
                   title="Agrandir/Restaurer la fenêtre"
                 >
                   <Maximize2 className="w-4 h-4" />
                 </button>
                 <button
                   onClick={handleCloseWindow}
-                  className="w-9 h-9 flex items-center justify-center text-gray-600 hover:text-white hover:bg-red-500 rounded-lg transition-all duration-200 hover:scale-105"
+                  className="w-9 h-9 flex items-center justify-center text-gray-200 hover:text-white hover:bg-red-500 rounded-lg transition-all duration-200 hover:scale-105"
                   title="Fermer l'application"
                 >
                   <X className="w-4 h-4" />

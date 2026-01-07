@@ -68,3 +68,26 @@ npm run dev
 **Port occupé** : Vérifier qu'aucun autre service n'utilise les ports 8000/3000
 
 **Cache Vite** : Supprimer `frontend/node_modules/.vite` et redémarrer
+
+
+
+
+
+
+    [string]$Email = "admin@proctoflex.ai",
+    [string]$Username = "admin",
+    [string]$Password = "admin123"
+)
+
+Write-Host "Creation du compte administrateur..." -ForegroundColor Cyan
+
+$body = @{
+    email = $Email
+    username = $Username
+    password = $Password
+    full_name = "Administrator"
+    role = "admin"
+} | ConvertTo-Json
+
+try {
+    $response = Invoke-RestMethod -Uri "http://localhost:8000/api/v1/auth/register" `

@@ -2,7 +2,7 @@
 Endpoints de gestion des examens ProctoFlex AI
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
@@ -11,6 +11,10 @@ from app.core.database import get_db, User, Exam, ExamSession, exam_students
 from app.core.security import get_current_user
 from pydantic import BaseModel
 from datetime import datetime, timezone
+from fastapi.responses import FileResponse
+from app.core.config import settings
+import os
+import shutil
 
 router = APIRouter()
 
@@ -59,6 +63,16 @@ class ExamResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+def _get_exam_or_404(db: Session, exam_id: int) -> Exam:
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Examen non trouvé"
+        )
+    return exam
 
 @router.post("", response_model=ExamResponse, status_code=status.HTTP_201_CREATED)
 async def create_exam(
@@ -275,6 +289,163 @@ async def get_exam(
         is_active=exam.is_active,
         created_at=exam.created_at,
         assigned_students_count=len(exam.assigned_students) if exam.assigned_students else 0
+    )
+
+
+@router.post("/{exam_id}/material", status_code=status.HTTP_200_OK)
+async def upload_exam_material(
+    exam_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload du PDF d'un examen.
+
+    - Seuls les admins et instructeurs peuvent uploader un PDF
+    - Le fichier est stocké dans le dossier d'uploads configuré
+    """
+    if current_user.role not in ["admin", "instructor"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Seuls les administrateurs et instructeurs peuvent téléverser des documents d'examen",
+        )
+
+    exam = _get_exam_or_404(db, exam_id)
+
+    # Vérifier le type de fichier
+    if file.content_type not in ["application/pdf", "application/octet-stream"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Seuls les fichiers PDF sont autorisés",
+        )
+
+    # S'assurer que le dossier d'upload existe
+    upload_dir = settings.UPLOAD_DIR
+    os.makedirs(upload_dir, exist_ok=True)
+
+    # Générer un nom de fichier unique
+    safe_filename = file.filename or f"exam_{exam_id}.pdf"
+    _, ext = os.path.splitext(safe_filename)
+    if ext.lower() != ".pdf":
+        ext = ".pdf"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    final_filename = f"exam_{exam_id}_{timestamp}{ext}"
+    file_path = os.path.join(upload_dir, final_filename)
+
+    # Sauvegarder le fichier sur le disque
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    finally:
+        await file.close()
+
+    # Mettre à jour l'examen avec les infos du PDF
+    exam.pdf_filename = final_filename
+    exam.pdf_path = file_path
+    db.commit()
+    db.refresh(exam)
+
+    return {
+        "message": "Document PDF téléchargé avec succès",
+        "pdf_filename": exam.pdf_filename,
+        "pdf_path": exam.pdf_path,
+    }
+
+
+def _ensure_exam_material_access(exam: Exam, current_user: User):
+    """
+    Vérifie que l'utilisateur a le droit d'accéder au PDF de l'examen.
+    - Admin & instructeur propriétaire : ok
+    - Étudiant : seulement si assigné à cet examen
+    """
+    if current_user.role in ["admin"]:
+        return
+
+    if current_user.role == "instructor":
+        if exam.instructor_id == current_user.id:
+            return
+        # Instructeur non propriétaire -> refus
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous n'êtes pas autorisé à accéder à ce document d'examen",
+        )
+
+    if current_user.role == "student":
+        if current_user in exam.assigned_students:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous n'êtes pas autorisé à accéder à ce document d'examen",
+        )
+
+    # Rôles inconnus
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Accès non autorisé",
+    )
+
+
+def _resolve_pdf_path(exam: Exam) -> str:
+    """
+    Détermine le chemin réel du PDF à partir des champs de l'examen.
+    """
+    # Chemin complet déjà stocké
+    if exam.pdf_path and os.path.isfile(exam.pdf_path):
+        return exam.pdf_path
+
+    # Sinon, essayer avec pdf_filename dans UPLOAD_DIR
+    if exam.pdf_filename:
+        candidate = os.path.join(settings.UPLOAD_DIR, exam.pdf_filename)
+        if os.path.isfile(candidate):
+            return candidate
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Aucun document PDF disponible pour cet examen",
+    )
+
+
+@router.get("/{exam_id}/material")
+async def get_exam_material(
+    exam_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Récupère le PDF d'un examen (téléchargement / consommation par les apps).
+    """
+    exam = _get_exam_or_404(db, exam_id)
+    _ensure_exam_material_access(exam, current_user)
+
+    pdf_path = _resolve_pdf_path(exam)
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=exam.pdf_filename or os.path.basename(pdf_path),
+    )
+
+
+@router.get("/{exam_id}/view")
+async def view_exam_material(
+    exam_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Affiche le PDF d'un examen dans le navigateur (inline).
+    Utilisé notamment par les viewers PDF.
+    """
+    exam = _get_exam_or_404(db, exam_id)
+    _ensure_exam_material_access(exam, current_user)
+
+    pdf_path = _resolve_pdf_path(exam)
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=exam.pdf_filename or os.path.basename(pdf_path),
     )
 
 @router.put("/{exam_id}", response_model=ExamResponse)
