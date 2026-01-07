@@ -255,10 +255,12 @@ export default function Surveillance(): JSX.Element {
                 e.is_active && (e.exam_status === 'assigned' || e.exam_status === 'started')
               ) : null;
               
-              if (activeExam) {
+              if (activeExam && activeExam.id) {
                 examId = activeExam.id.toString();
-                sessionStorage.setItem('pf_exam_id', examId);
-                console.log('📝 Examen actif trouvé depuis l\'API:', examId);
+                if (examId) {
+                  sessionStorage.setItem('pf_exam_id', examId);
+                  console.log('📝 Examen actif trouvé depuis l\'API:', examId);
+                }
               }
             }
           } catch (examFetchError) {
@@ -289,6 +291,30 @@ export default function Surveillance(): JSX.Element {
             if (data.session_id) {
               sessionStorage.setItem('pf_session_id', data.session_id.toString());
               console.log('📝 Session ID stocké:', data.session_id);
+              
+              // Envoyer une alerte informative au backend pour le dashboard admin
+              try {
+                const alertResponse = await fetch('http://localhost:8000/api/v1/alerts', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(token && { 'Authorization': `Bearer ${token}` })
+                  },
+                  body: JSON.stringify({
+                    type: 'session_started',
+                    severity: 'low',
+                    description: `Session de surveillance démarrée (ID: ${data.session_id})`,
+                    session_id: data.session_id,
+                    exam_id: parseInt(examId || '0'),
+                    student_id: parseInt(studentId || '0')
+                  })
+                });
+                if (alertResponse.ok) {
+                  console.log('✅ Alerte de démarrage envoyée au dashboard admin');
+                }
+              } catch (alertError) {
+                console.log('Note: Alerte de démarrage non envoyée (non critique):', alertError);
+              }
             }
             setAlerts((a) => [...a, `✅ Session de surveillance démarrée (ID: ${data.session_id})`]);
           } else {
@@ -427,17 +453,21 @@ export default function Surveillance(): JSX.Element {
       
       // Le backend retourne une liste d'alertes créées avec détails
       // Note: json.alerts_created est un nombre, pas un booléen
-      if (json.alerts_created && json.alerts_created > 0) {
-        console.log('🚨 Alertes créées:', json.alert_ids, json.alert_details);
+      const alertsCount = json.alerts_created || 0;
+      const alertDetails = json.alert_details || [];
+      const alertIds = json.alert_ids || [];
+      
+      if (alertsCount > 0 && (alertDetails.length > 0 || alertIds.length > 0)) {
+        console.log('🚨 Alertes créées:', { count: alertsCount, ids: alertIds, details: alertDetails });
         
         const now = Date.now();
         const newAlertMessages: string[] = [];
         
         // Utiliser les détails des alertes si disponibles, sinon utiliser les IDs
-        if (json.alert_details && json.alert_details.length > 0) {
-          json.alert_details.forEach((alert: any) => {
+        if (alertDetails.length > 0) {
+          alertDetails.forEach((alert: any) => {
             // Éviter le spam : ne pas afficher la même alerte plus d'une fois toutes les 10 secondes
-            const alertKey = `${alert.type}_${alert.severity}`;
+            const alertKey = `${alert.type}_${alert.severity}_${alert.id || Date.now()}`;
             const lastTime = lastAlertTime.current[alertKey] || 0;
             
             if (now - lastTime > 10000) { // 10 secondes entre les mêmes alertes
@@ -446,10 +476,11 @@ export default function Surveillance(): JSX.Element {
               const alertMessage = `${severityEmoji} ${alert.description}`;
               newAlertMessages.push(alertMessage);
               lastAlertTime.current[alertKey] = now;
+              console.log('📢 Alerte ajoutée à l\'interface:', alertMessage);
             }
           });
-        } else if (json.alert_ids && json.alert_ids.length > 0) {
-          json.alert_ids.forEach((alertId: number) => {
+        } else if (alertIds.length > 0) {
+          alertIds.forEach((alertId: number) => {
             const alertKey = `alert_${alertId}`;
             const lastTime = lastAlertTime.current[alertKey] || 0;
             
@@ -462,9 +493,13 @@ export default function Surveillance(): JSX.Element {
         
         if (newAlertMessages.length > 0) {
           setAlerts((prev) => [...newAlertMessages, ...prev].slice(0, 50));
+          console.log(`✅ ${newAlertMessages.length} alerte(s) affichée(s) dans l'interface`);
         }
       } else {
-        console.log('ℹ️ Aucune alerte créée lors de cette analyse');
+        // Log seulement si vraiment aucune alerte (pas de spam)
+        if (alertsCount === 0) {
+          console.log('ℹ️ Aucune alerte créée lors de cette analyse (tout est normal)');
+        }
         
         // Afficher les informations de l'analyse même s'il n'y a pas d'alerte
         if (json.face_analysis) {
@@ -650,9 +685,14 @@ export default function Surveillance(): JSX.Element {
       }
     } catch {}
 
-    // Subscribe to student warnings from main process
+    // Subscribe to student warnings from main process (alertes de processus interdits)
     const off = window.electronAPI?.onStudentWarning?.((payload: any) => {
       const msg = payload?.message || 'Application non autorisée détectée';
+      const appName = payload?.app || 'Application inconnue';
+      
+      // Message formaté pour l'affichage
+      const alertMessage = `🚫 ${msg}`;
+      
       // Popup in-app (non système)
       try {
         const container = document.getElementById('pf-toast-container') || (() => {
@@ -666,17 +706,31 @@ export default function Surveillance(): JSX.Element {
           return c;
         })();
         const toast = document.createElement('div');
-        toast.style.background = '#111827';
+        toast.style.background = '#dc2626';
         toast.style.color = 'white';
-        toast.style.padding = '10px 12px';
+        toast.style.padding = '12px 16px';
         toast.style.marginTop = '8px';
-        toast.style.borderRadius = '6px';
+        toast.style.borderRadius = '8px';
         toast.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)';
-        toast.textContent = msg;
+        toast.textContent = alertMessage;
         container.appendChild(toast);
-        setTimeout(() => { container.removeChild(toast); }, 4000);
+        setTimeout(() => { 
+          if (container.contains(toast)) {
+            container.removeChild(toast);
+          }
+        }, 5000);
       } catch {}
-      setAlerts((prev) => [`WARNING: ${msg}`, ...prev].slice(0, 50));
+      
+      // Ajouter à la liste des alertes avec déduplication
+      const now = Date.now();
+      const alertKey = `forbidden_app_${appName}`;
+      const lastTime = lastAlertTime.current[alertKey] || 0;
+      
+      if (now - lastTime > 5000) { // 5 secondes entre les mêmes alertes d'applications
+        setAlerts((prev) => [alertMessage, ...prev].slice(0, 50));
+        lastAlertTime.current[alertKey] = now;
+        console.log('🚫 Alerte processus interdite reçue:', appName);
+      }
     });
 
     return () => {

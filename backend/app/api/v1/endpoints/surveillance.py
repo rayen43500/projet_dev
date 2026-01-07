@@ -507,20 +507,27 @@ async def analyze_surveillance_data_with_alerts(
                 else:
                     # Analyse du visage (présence, nombre de visages, éclairage, etc.)
                     face_result = face_engine.analyze_face_behavior(image)
-                    logger.info(f"Résultat analyse visage pour session {session_id}: face_detected={face_result.get('face_detected')}, brightness={face_result.get('brightness')}, low_light={face_result.get('low_light')}, multiple_faces={face_result.get('multiple_faces')}")
+                    logger.info(f"Résultat analyse visage pour session {session_id}: face_detected={face_result.get('face_detected')}, face_not_detected={face_result.get('face_not_detected')}, brightness={face_result.get('brightness')}, low_light={face_result.get('low_light')}, multiple_faces={face_result.get('multiple_faces')}")
                     
                     # Détection d'objets suspects (téléphones, tablettes, etc.)
                     suspicious_objects = face_engine.detect_suspicious_objects(image)
                     logger.info(f"Détection objets suspects: {suspicious_objects}")
                 
                     # Créer des alertes si nécessaire
-                    if face_result and face_result.get('face_not_detected'):
+                    # Vérifier si le visage n'est PAS détecté (face_detected=False OU face_not_detected=True)
+                    face_not_detected = (
+                        not face_result.get('face_detected', False) or 
+                        face_result.get('face_not_detected', False)
+                    )
+                    
+                    if face_result and face_not_detected:
                         logger.warning(f"Visage non détecté pour session {session_id}")
                         alert = await create_and_send_alert(
                             db, session_id, 'face_not_detected', 'medium',
                             'Visage non détecté - l\'étudiant pourrait ne pas être présent'
                         )
                         alerts_created.append(alert.id)
+                        logger.info(f"Alerte créée: face_not_detected (ID: {alert.id})")
                     
                     if face_result and face_result.get('multiple_faces'):
                         logger.warning(f"Plusieurs visages détectés pour session {session_id}")
@@ -539,11 +546,12 @@ async def analyze_surveillance_data_with_alerts(
                         alerts_created.append(alert.id)
 
                     # Alerte sur l'éclairage insuffisant (avec seuil plus sensible)
+                    # Vérifier même si le visage n'est pas détecté
                     if face_result:
                         brightness_value = face_result.get('brightness', None)
                         low_light = face_result.get('low_light', False)
                         
-                        if low_light:
+                        if low_light and brightness_value is not None:
                             logger.warning(f"Éclairage insuffisant détecté pour session {session_id} (luminosité: {brightness_value})")
                             alert = await create_and_send_alert(
                                 db,
@@ -553,6 +561,7 @@ async def analyze_surveillance_data_with_alerts(
                                 f'Éclairage insuffisant détecté (luminosité: {brightness_value:.1f}/255) - veuillez améliorer l\'éclairage',
                             )
                             alerts_created.append(alert.id)
+                            logger.info(f"Alerte créée: low_light (ID: {alert.id})")
                     
                     # Alerte sur les objets suspects
                     if suspicious_objects and suspicious_objects.get('suspicious_objects_detected'):

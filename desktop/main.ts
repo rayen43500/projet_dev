@@ -567,28 +567,37 @@ async function tickProcessMonitor(mainWindow: Electron.BrowserWindow | null) {
     const autoKill: boolean = !!(effective.policy && effective.policy.auto_kill);
     const repeatThreshold: number = Math.max(1, Number(effective.policy?.repeat_threshold || 2));
 
-    // Log pour debug
-    if (procSet.size > 0) {
-      const sampleProcesses = Array.from(procSet).slice(0, 10);
-      console.log('[Monitor] Processus détectés (échantillon):', sampleProcesses);
-      console.log('[Monitor] Liste interdite:', forbidden);
+    // Log pour debug (toutes les 10 itérations pour ne pas spammer)
+    const debugLogCounter = (tickProcessMonitor as any).debugCounter || 0;
+    (tickProcessMonitor as any).debugCounter = (debugLogCounter + 1) % 10;
+    
+    if (procSet.size > 0 && debugLogCounter === 0) {
+      const sampleProcesses = Array.from(procSet).slice(0, 15);
+      console.log('[Monitor] 📊 Processus détectés (échantillon):', sampleProcesses);
+      console.log('[Monitor] 🚫 Liste interdite:', forbidden);
+      console.log('[Monitor] 📈 Total processus:', procSet.size);
     }
 
     for (const forb of forbidden) {
-      // Vérifier avec et sans .exe
-      const forbWithExe = forb.endsWith('.exe') ? forb : `${forb}.exe`;
-      const forbWithoutExe = forb.endsWith('.exe') ? forb.replace('.exe', '') : forb;
+      // Normaliser le nom (enlever .exe si présent, puis comparer)
+      const forbNormalized = forb.toLowerCase().replace('.exe', '').trim();
       
-      // Vérifier les deux variantes
-      const isForbidden = procSet.has(forb) || procSet.has(forbWithExe) || procSet.has(forbWithoutExe);
+      // Chercher dans tous les processus avec correspondance flexible
+      let detectedName: string | null = null;
       
-      if (isForbidden) {
-        // Trouver le nom exact du processus détecté
-        const detectedName = Array.from(procSet).find(p => 
-          p === forb || p === forbWithExe || p === forbWithoutExe ||
-          p.includes(forbWithoutExe) || forbWithoutExe.includes(p.replace('.exe', ''))
-        ) || forb;
+      for (const procName of procSet) {
+        const procNormalized = procName.toLowerCase().replace('.exe', '').trim();
         
+        // Correspondance exacte ou partielle
+        if (procNormalized === forbNormalized || 
+            procNormalized.includes(forbNormalized) || 
+            forbNormalized.includes(procNormalized)) {
+          detectedName = procName; // Garder le nom original avec .exe si présent
+          break;
+        }
+      }
+      
+      if (detectedName) {
         console.log('[Monitor] 🚫 Application interdite détectée:', detectedName, '(recherché:', forb, ')');
         await sendAlert({ type: 'forbidden_app', process: detectedName, severity: 'high' }, mainWindow);
         const now = Date.now();
