@@ -190,7 +190,8 @@ export default function Surveillance(): JSX.Element {
             },
             body: JSON.stringify({
               exam_id: parseInt(examId),
-              student_id: parseInt(studentId)
+              student_id: parseInt(studentId),
+              identity_verified: false  // Peut être fait après
             })
           });
           

@@ -72,7 +72,7 @@ const Exams: React.FC = () => {
             description: exam.description || '',
             duration: exam.duration_minutes,
             status,
-            students: 0, // TODO: Récupérer le nombre d'étudiants assignés
+            students: (exam as any).assigned_students_count || 0, // Nombre d'étudiants assignés
             startDate,
             endDate,
           };

@@ -35,7 +35,16 @@ export default function Exams(): JSX.Element {
       setError(null);
       
       const data = await apiService.getStudentExams(studentId);
-      setExams(data);
+      // Mapper les données pour s'assurer que tous les champs sont présents
+      const mappedExams = data.map((exam: any) => ({
+        ...exam,
+        id: exam.id.toString(), // S'assurer que l'ID est une string
+        exam_status: exam.exam_status || 'assigned', // Statut par défaut
+        assigned_at: exam.assigned_at || exam.created_at || exam.start_time || new Date().toISOString(),
+        instructions: exam.instructions || '',
+        pdf_filename: exam.pdf_filename || null,
+      }));
+      setExams(mappedExams);
     } catch (err: any) {
       setError(err.message);
     } finally {

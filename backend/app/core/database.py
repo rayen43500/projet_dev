@@ -59,6 +59,9 @@ class Exam(Base):
     instructor_id = Column(Integer, ForeignKey("users.id"))
     allowed_apps = Column(Text)  # JSON string des applications autorisées
     allowed_domains = Column(Text)  # JSON string des domaines web autorisés
+    instructions = Column(Text)  # Instructions pour l'examen
+    pdf_filename = Column(String)  # Nom du fichier PDF
+    pdf_path = Column(String)  # Chemin du fichier PDF
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

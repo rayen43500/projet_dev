@@ -55,7 +55,7 @@ export const API_ENDPOINTS = {
     DASHBOARD_STATS: '/api/v1/surveillance/dashboard/stats',
   },
   // Health
-  HEALTH: '/health',
+  HEALTH: '/api/v1/health',
 } as const;
 
 // Configuration des requêtes

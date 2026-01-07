@@ -10,14 +10,20 @@ export interface User {
 }
 
 export interface Exam {
-  id: string;
+  id: string | number;
   title: string;
   description?: string;
   duration_minutes: number;
   instructions?: string;
   exam_status: 'assigned' | 'started' | 'completed' | 'failed';
-  assigned_at: string;
+  assigned_at?: string;
+  start_time?: string;
+  end_time?: string;
+  created_at?: string;
   pdf_filename?: string;
+  pdf_path?: string;
+  allowed_apps?: string;
+  allowed_domains?: string;
 }
 
 type LoginResponse = {

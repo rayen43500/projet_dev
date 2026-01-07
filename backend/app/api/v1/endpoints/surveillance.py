@@ -193,21 +193,45 @@ async def start_exam_session(
 ):
     """
     Démarre une session d'examen avec vérification d'identité
+    Peut être appelé avec ou sans vérification d'identité préalable
     """
     try:
         # Vérification que l'utilisateur est un étudiant
         if current_user.role != "student":
             raise HTTPException(status_code=403, detail="Seuls les étudiants peuvent démarrer des sessions d'examen")
         
-        # Vérification de l'identité
-        if not request.identity_verified:
-            raise HTTPException(status_code=400, detail="L'identité doit être vérifiée avant de démarrer la session")
+        # Vérifier que l'examen existe
+        exam = db.query(Exam).filter(Exam.id == request.exam_id).first()
+        if not exam:
+            raise HTTPException(status_code=404, detail="Examen non trouvé")
         
-        # Création de la session
+        # Vérifier que l'étudiant est assigné à cet examen
+        if current_user not in exam.assigned_students:
+            raise HTTPException(status_code=403, detail="Vous n'êtes pas assigné à cet examen")
+        
+        # Vérifier s'il existe déjà une session active
+        existing_session = db.query(ExamSession).filter(
+            ExamSession.exam_id == request.exam_id,
+            ExamSession.student_id == current_user.id,
+            ExamSession.status == "active"
+        ).first()
+        
+        if existing_session:
+            return SessionStatusResponse(
+                session_id=existing_session.id,
+                status="active",
+                message="Session déjà active"
+            )
+        
+        # Utiliser student_id de la requête ou current_user
+        student_id = request.student_id if request.student_id else current_user.id
+        
+        # Création de la session (identity_verified est optionnel maintenant)
         session = ExamSession(
             exam_id=request.exam_id,
-            student_id=current_user.id,
-            status="active"
+            student_id=student_id,
+            status="active",
+            start_time=datetime.now(timezone.utc)
         )
         db.add(session)
         db.commit()
@@ -219,6 +243,8 @@ async def start_exam_session(
             message="Session d'examen démarrée avec succès"
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors du démarrage de la session: {str(e)}")
 

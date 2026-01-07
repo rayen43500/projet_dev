@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
-from app.core.database import get_db, User, Exam, exam_students
+from app.core.database import get_db, User, Exam, ExamSession, exam_students
 from app.core.security import get_current_user
 from pydantic import BaseModel
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -22,6 +23,8 @@ class ExamCreate(BaseModel):
     end_time: datetime
     allowed_apps: Optional[List[str]] = None
     allowed_domains: Optional[List[str]] = None
+    instructions: Optional[str] = None
+    pdf_filename: Optional[str] = None
     student_ids: Optional[List[int]] = None  # Liste des IDs d'étudiants à assigner
 
 class ExamUpdate(BaseModel):
@@ -45,8 +48,14 @@ class ExamResponse(BaseModel):
     instructor_id: Optional[int]
     allowed_apps: Optional[str]
     allowed_domains: Optional[str]
+    instructions: Optional[str] = None
+    pdf_filename: Optional[str] = None
+    pdf_path: Optional[str] = None
     is_active: bool
     created_at: datetime
+    assigned_students_count: Optional[int] = None  # Nombre d'étudiants assignés
+    exam_status: Optional[str] = None  # assigned, started, completed (pour compatibilité desktop)
+    assigned_at: Optional[str] = None  # Date d'assignation (pour compatibilité desktop)
 
     class Config:
         from_attributes = True
@@ -89,6 +98,8 @@ async def create_exam(
         instructor_id=current_user.id,
         allowed_apps=allowed_apps_json,
         allowed_domains=allowed_domains_json,
+        instructions=exam_data.instructions,
+        pdf_filename=exam_data.pdf_filename,
         is_active=True
     )
     
@@ -128,7 +139,51 @@ async def get_exams(
         # Pour les admins/instructeurs, retourner tous les examens
         exams = db.query(Exam).offset(skip).limit(limit).all()
     
-    return exams
+    # Mapper avec le nombre d'étudiants assignés et ajouter exam_status pour compatibilité desktop
+    result = []
+    for exam in exams:
+        # Déterminer le statut basé sur les sessions actives
+        active_sessions = db.query(ExamSession).filter(
+            ExamSession.exam_id == exam.id,
+            ExamSession.status == "active"
+        ).count()
+        
+        exam_status = "assigned"  # Par défaut
+        if active_sessions > 0:
+            exam_status = "started"
+        
+        # Vérifier s'il y a des sessions terminées
+        completed_sessions = db.query(ExamSession).filter(
+            ExamSession.exam_id == exam.id,
+            ExamSession.status == "completed"
+        ).count()
+        
+        if completed_sessions > 0 and active_sessions == 0:
+            exam_status = "completed"
+        
+        exam_dict = {
+            "id": exam.id,
+            "title": exam.title,
+            "description": exam.description,
+            "duration_minutes": exam.duration_minutes,
+            "start_time": exam.start_time,
+            "end_time": exam.end_time,
+            "student_id": exam.student_id,
+            "instructor_id": exam.instructor_id,
+            "allowed_apps": exam.allowed_apps,
+            "allowed_domains": exam.allowed_domains,
+            "instructions": getattr(exam, 'instructions', None),
+            "pdf_filename": getattr(exam, 'pdf_filename', None),
+            "pdf_path": getattr(exam, 'pdf_path', None),
+            "is_active": exam.is_active,
+            "created_at": exam.created_at,
+            "assigned_students_count": len(exam.assigned_students) if exam.assigned_students else 0,
+            "exam_status": exam_status,  # Pour compatibilité desktop
+            "assigned_at": exam.created_at.isoformat() if exam.created_at else None  # Pour compatibilité desktop
+        }
+        result.append(ExamResponse(**exam_dict))
+    
+    return result
 
 @router.get("/student/{student_id}", response_model=List[ExamResponse])
 async def get_student_exams(
@@ -161,7 +216,30 @@ async def get_student_exams(
         User.id == student_id
     ).all()
     
-    return exams
+    # Mapper avec le nombre d'étudiants assignés et les champs additionnels
+    result = []
+    for exam in exams:
+        exam_dict = {
+            "id": exam.id,
+            "title": exam.title,
+            "description": exam.description,
+            "duration_minutes": exam.duration_minutes,
+            "start_time": exam.start_time,
+            "end_time": exam.end_time,
+            "student_id": exam.student_id,
+            "instructor_id": exam.instructor_id,
+            "allowed_apps": exam.allowed_apps,
+            "allowed_domains": exam.allowed_domains,
+            "instructions": getattr(exam, 'instructions', None),
+            "pdf_filename": getattr(exam, 'pdf_filename', None),
+            "pdf_path": getattr(exam, 'pdf_path', None),
+            "is_active": exam.is_active,
+            "created_at": exam.created_at,
+            "assigned_students_count": len(exam.assigned_students) if exam.assigned_students else 0
+        }
+        result.append(ExamResponse(**exam_dict))
+    
+    return result
 
 @router.get("/{exam_id}", response_model=ExamResponse)
 async def get_exam(
@@ -178,7 +256,26 @@ async def get_exam(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Examen non trouvé"
         )
-    return exam
+    
+    # Retourner avec le nombre d'étudiants assignés
+    return ExamResponse(
+        id=exam.id,
+        title=exam.title,
+        description=exam.description,
+        duration_minutes=exam.duration_minutes,
+        start_time=exam.start_time,
+        end_time=exam.end_time,
+        student_id=exam.student_id,
+        instructor_id=exam.instructor_id,
+        allowed_apps=exam.allowed_apps,
+        allowed_domains=exam.allowed_domains,
+        instructions=getattr(exam, 'instructions', None),
+        pdf_filename=getattr(exam, 'pdf_filename', None),
+        pdf_path=getattr(exam, 'pdf_path', None),
+        is_active=exam.is_active,
+        created_at=exam.created_at,
+        assigned_students_count=len(exam.assigned_students) if exam.assigned_students else 0
+    )
 
 @router.put("/{exam_id}", response_model=ExamResponse)
 async def update_exam(
@@ -383,4 +480,121 @@ async def get_exam_students(
     ]
     
     return students
+
+@router.post("/{exam_id}/start")
+async def start_exam(
+    exam_id: int,
+    student_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Démarre un examen pour un étudiant
+    Crée une session d'examen
+    """
+    # Vérifier que l'utilisateur est l'étudiant concerné ou un admin/instructor
+    if current_user.role == "student" and current_user.id != student_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous ne pouvez démarrer que vos propres examens"
+        )
+    
+    # Vérifier que l'examen existe
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Examen non trouvé"
+        )
+    
+    # Vérifier que l'étudiant est assigné à cet examen
+    student = db.query(User).filter(User.id == student_id).first()
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Étudiant non trouvé"
+        )
+    
+    if student not in exam.assigned_students:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cet étudiant n'est pas assigné à cet examen"
+        )
+    
+    # Vérifier s'il existe déjà une session active pour cet examen et cet étudiant
+    existing_session = db.query(ExamSession).filter(
+        ExamSession.exam_id == exam_id,
+        ExamSession.student_id == student_id,
+        ExamSession.status == "active"
+    ).first()
+    
+    if existing_session:
+        # Retourner la session existante
+        return {
+            "session_id": existing_session.id,
+            "message": "Session déjà active",
+            "status": "active"
+        }
+    
+    # Créer une nouvelle session
+    session = ExamSession(
+        exam_id=exam_id,
+        student_id=student_id,
+        status="active",
+        start_time=datetime.now(timezone.utc)
+    )
+    
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    
+    return {
+        "session_id": session.id,
+        "message": "Examen démarré avec succès",
+        "status": "active"
+    }
+
+@router.post("/{exam_id}/submit")
+async def submit_exam(
+    exam_id: int,
+    student_id: int,
+    answers: Optional[dict] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Soumet un examen (termine la session)
+    """
+    # Vérifier que l'utilisateur est l'étudiant concerné ou un admin/instructor
+    if current_user.role == "student" and current_user.id != student_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous ne pouvez soumettre que vos propres examens"
+        )
+    
+    # Trouver la session active
+    session = db.query(ExamSession).filter(
+        ExamSession.exam_id == exam_id,
+        ExamSession.student_id == student_id,
+        ExamSession.status == "active"
+    ).first()
+    
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune session active trouvée pour cet examen"
+        )
+    
+    # Terminer la session
+    session.status = "completed"
+    session.end_time = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(session)
+    
+    return {
+        "message": "Examen soumis avec succès",
+        "session_id": session.id,
+        "status": "completed"
+    }
 
